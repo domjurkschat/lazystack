@@ -1,0 +1,27 @@
+[project]
+name = "lazystack"
+version = "0.1.0"
+description = "A lightweight, cross-platform unified interface for lazily reading scientific image stacks."
+readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    { name = "Dominic Jurkschat", email = "dom.jurkschat@monash.edu" }
+]
+requires-python = ">=3.10"
+dependencies = [
+  "numpy",
+  "h5py",
+  "tifffile",
+  "prefetch-generator",
+  "dcimg @ git+https://github.com/domjurkschat/dcimg.git@v0.7.0",
+]
+[project.optional-dependencies]
+testing = ["pytest"]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[build-system]
+requires = ["uv_build>=0.11.19,<0.12.0"]
+build-backend = "uv_build"
+
