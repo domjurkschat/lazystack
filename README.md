@@ -2,8 +2,8 @@
 
 lazystack provides a familiar interface for lazily reading scientific image 
 stacks. It's cross-platform, lightweight, and easy to use. lazystack objects 
-are iterable, sliceable, and only load the underlying data into memory when 
-absolutely necessary. They also support NumPy-style fancy indexing.
+are indexable (including NumPy-style fancy indexing), iterable, sliceable, and 
+only load the underlying data into memory when absolutely necessary. 
 
 **Supported formats**
 
@@ -15,8 +15,6 @@ absolutely necessary. They also support NumPy-style fancy indexing.
 
 **Installation**
 
-lazystack isn't published on PyPI yet. Until then, you can install via:
-
 ```console
 $ pip install git+https://github.com/domjurkschat/lazystack
 ```
@@ -27,13 +25,11 @@ For developers, you can clone the repository and run
 $ pip install -e .
 ```
 
-for pip, or 
+or
 
 ```console
 $ uv sync
 ```
-
-for uv.
 
 **Usage**
 
@@ -54,14 +50,19 @@ with lazystack("path/to/somehis.his") as images:
     subsubstack = substack[0:10]
     # Spatial slicing also produces a view.
     subsubsubstack = subsubstack[:, 100:, 50:-50]
-    # Integer indexing materialises an image.
+    # Integer indexing materialises an image from the view.
     image = subsubsubstack[5]
     # `np.asarray()` materialises the whole view.
     subsubsubstack = np.asarray(subsubsubstack)
 ```
 
+A stack exposes NumPy-like attributes: ``shape``, ``dtype``, ``size`` (total
+elements), and ``itemsize`` (bytes per element). Disk usage is available via
+``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
+A one-line summary is available via ``str(stack)`` or ``stack.info``.
+
 It's best to open lazystacks within a context manager, but you can also open 
-and close them manually, e.g.,:
+and close them manually, e.g.:
 
 ```python
 images = lazystack("path/to/somehis.his")
@@ -72,14 +73,16 @@ images.close()
 ```
 
 If you're opening HDF files, the desired dataset path (within the HDF file) 
-must also be specified, e.g.,:
+must also be specified, e.g.:
 
 ```python
 images = lazystack("path/to/some/hdf5.h5", "path/to/some/dset")
 ```
 
 lazystack also provides `iter_chunks` for prefetching and yielding 
-successive chunks along any axis of a 3D array (or lazystack), e.g.,:
+successive chunks along any axis of a 3D array (or lazystack), e.g.:
+
+You can also pass a plain 3D NumPy array instead of a lazystack.
 
 ```python
 from lazystack import lazystack, iter_chunks
@@ -111,8 +114,15 @@ with lazystack("path/to/somedcimg.dcimg") as images:
 Contributions are very welcome! Don't hesitate to reach out if you have any 
 questions.
 
+Run tests with:
+
+```console
+$ uv run pytest
+```
+
 **To-do list:**
 * Vendor necessary `dcimg` components and publish to PyPI.
+* Finish test suite.
 * Nested spatial indexing.
 * Stacks of stacks.
 * Other file formats.
