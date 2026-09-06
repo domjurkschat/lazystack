@@ -15,9 +15,6 @@ dependencies = [
   "prefetch-generator",
   "dcimg @ git+https://github.com/domjurkschat/dcimg.git@v0.7.0",
 ]
-[project.optional-dependencies]
-testing = ["pytest"]
-
 [dependency-groups]
 dev = ["pytest"]
 

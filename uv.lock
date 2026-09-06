@@ -123,11 +123,6 @@ dependencies = [
     { name = "tifffile", version = "2026.8.23", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
 ]
 
-[package.optional-dependencies]
-testing = [
-    { name = "pytest" },
-]
-
 [package.dev-dependencies]
 dev = [
     { name = "pytest" },
@@ -139,10 +134,8 @@ requires-dist = [
     { name = "h5py" },
     { name = "numpy" },
     { name = "prefetch-generator" },
-    { name = "pytest", marker = "extra == 'testing'" },
     { name = "tifffile" },
 ]
-provides-extras = ["testing"]
 
 [package.metadata.requires-dev]
 dev = [{ name = "pytest" }]
