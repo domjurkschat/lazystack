@@ -114,7 +114,7 @@ with lazystack("path/to/somedcimg.dcimg") as images:
 Contributions are very welcome! Don't hesitate to reach out if you have any 
 questions.
 
-Tests can be ran via:
+Tests can be run via:
 
 ```console
 $ uv run pytest
