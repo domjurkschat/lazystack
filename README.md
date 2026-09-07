@@ -1,3 +1,5 @@
+WIP: Don't hesitate to open an issue if you have any feedback or encounter any bugs.
+
 **Introduction**
 
 lazystack provides a familiar interface for lazily reading scientific image 
@@ -82,8 +84,6 @@ images = lazystack("path/to/some/hdf5.h5", "path/to/some/dset")
 lazystack also provides `iter_chunks` for prefetching and yielding 
 successive chunks along any axis of a 3D array (or lazystack), e.g.:
 
-You can also pass a plain 3D NumPy array instead of a lazystack.
-
 ```python
 from lazystack import lazystack, iter_chunks
 
@@ -114,7 +114,7 @@ with lazystack("path/to/somedcimg.dcimg") as images:
 Contributions are very welcome! Don't hesitate to reach out if you have any 
 questions.
 
-Run tests with:
+Tests can be ran via:
 
 ```console
 $ uv run pytest
