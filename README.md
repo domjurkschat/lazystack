@@ -81,6 +81,16 @@ must also be specified, e.g.:
 images = lazystack("path/to/some/hdf5.h5", "path/to/some/dset")
 ```
 
+Directories of files can be opened by supplying a list or array of filenames, e.g.:
+
+```python
+filenames = sorted(input_path.glob("*.tif"))
+with lazystack(filenames) as images:
+    # Do some stuff.
+```
+
+Currently, this only supports TIFF and Micro-Manager TIFF files.
+
 lazystack also provides `iter_chunks` for prefetching and yielding 
 successive chunks along any axis of a 3D array (or lazystack), e.g.:
 
