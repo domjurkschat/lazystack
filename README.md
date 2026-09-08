@@ -1,9 +1,7 @@
-WIP: Don't hesitate to open an issue if you have any feedback or encounter any bugs.
+## lazystack
 
-**Introduction**
-
-lazystack provides a familiar interface for lazily reading scientific image 
-stacks. It's cross-platform, lightweight, and easy to use. lazystack objects 
+This package provides a familiar interface for lazily reading scientific image 
+stacks. It's cross-platform, lightweight, and easy to use. Stacks opened via lazystack 
 are indexable (including NumPy-style fancy indexing), iterable, sliceable, and 
 only load the underlying data into memory when absolutely necessary. 
 
@@ -15,7 +13,7 @@ only load the underlying data into memory when absolutely necessary.
 * Hamamatsu DCIMG (.dcimg).
 * Hamamatsu HIS (.his).
 
-**Installation**
+## Installation
 
 ```console
 $ pip install git+https://github.com/domjurkschat/lazystack
@@ -33,7 +31,7 @@ or
 $ uv sync
 ```
 
-**Usage**
+## Usage
 
 Lazy stacks can be created by passing a path or a list/array of paths to the 
 `lazystack` function. The underlying data is only materialised via integer 
@@ -119,10 +117,10 @@ with lazystack("path/to/somedcimg.dcimg") as images:
         # Do some stuff.
 ```
 
-**Contributing**
+## Contributing
 
 Contributions are very welcome! Don't hesitate to reach out if you have any 
-questions.
+questions and feel free to open an issue if you have any feedback or encounter any bugs.
 
 Tests can be run via:
 
