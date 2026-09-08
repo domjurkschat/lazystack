@@ -69,6 +69,16 @@ def test_iter_chunks_only_3d():
         iter_chunks(np.zeros((5, 5)))
 
 
+def test_iter_chunks_bad_axis(example_3d_data):
+    with pytest.raises(ValueError):
+        iter_chunks(example_3d_data, axis=3)
+
+
+def test_iter_chunks_bad_prefetch(example_3d_data):
+    with pytest.raises(ValueError):
+        iter_chunks(example_3d_data, num_prefetch=-1)
+
+
 @pytest.fixture
 def example_stack(tmp_path, example_3d_data):
     path = tmp_path / "tmp.h5"

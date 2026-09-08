@@ -129,6 +129,13 @@ def iter_chunks(
         raise ValueError(
             f"Only 3D arrays are supported, but got {array.shape=}"
         )
+    if axis not in (0, 1, 2):
+        raise ValueError(f"`axis` must be 0, 1, or 2, but got {axis}.")
+    if num_prefetch < 0:
+        raise ValueError(
+            f"`num_prefetch` must be positive, but got {num_prefetch}. Set "
+            f"`num_prefetch=0` to remove prefetch limit."
+        )
 
     # Calculate how much memory one item occupies along the batch axis.
     image_nbytes = array.nbytes // array.shape[axis]
