@@ -244,6 +244,8 @@ class View:
             slicing.
         nbytes (int): Total number of bytes when materialised (``num_images``
             * ``image_nbytes``).
+        size (int): Number of elements in the stack.
+        itemsize (int): Length of one element in bytes.
     """
 
     def __init__(self, base: Stack, z_indices: Items, yx_indices: tuple = ()):
@@ -298,6 +300,14 @@ class View:
 
     def __len__(self) -> int:
         return self.shape[0]
+
+    @property
+    def size(self):
+        return np.prod(self.shape)
+
+    @property
+    def itemsize(self):
+        return self.dtype.itemsize
 
 
 class HISStack(Stack):

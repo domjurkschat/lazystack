@@ -150,6 +150,8 @@ def test_view_attributes(example_stack, example_3d_data):
     assert view.nbytes == data.nbytes
     assert view.image_nbytes == data.nbytes / data.shape[0]
     assert view.shape[0] == len(view)
+    assert view.size == data.size
+    assert view.itemsize == data.itemsize
 
 
 def test_view_empty(example_stack):
