@@ -24,20 +24,6 @@ PathTypes: TypeAlias = (
 __all__ = ["Stack", "iter_chunks", "lazystack"]
 
 
-def _describe(base: Stack) -> str:
-    """
-    Return information about the current instance, including shape and disk
-    usage of each image and the image stack.
-    """
-    image_nbytes_mb = 1e-6 * base.image_nbytes
-    nbytes_mb = 1e-6 * base.nbytes
-    return (
-        f"{type(base).__name__} object referencing {base.shape[0]} "
-        f"{base.dtype} images of shape {base.shape[1:]}. Each image occupies "
-        f"{image_nbytes_mb:.2f} MB on disk, totalling {nbytes_mb:.2f} MB."
-    )
-
-
 class Stack:
     """
     Base class for lazy image stack readers.
@@ -68,7 +54,18 @@ class Stack:
         return self.close()
 
     def __str__(self):
-        return _describe(self)
+        """
+        Return information about the current instance, including shape and disk
+        usage of each image and the image stack.
+        """
+        image_nbytes_mb = 1e-6 * self.image_nbytes
+        nbytes_mb = 1e-6 * self.nbytes
+        return (
+            f"{type(self).__name__} object referencing {self.shape[0]} "
+            f"{self.dtype} images of shape {self.shape[1:]}. Each image "
+            f"occupies {image_nbytes_mb:.2f} MB on disk, totalling "
+            f"{nbytes_mb:.2f} MB."
+        )
 
     def asarray(self, dtype=None) -> npt.NDArray:
         """Return the stack's data as a materialised NumPy array."""
@@ -84,10 +81,6 @@ class Stack:
 
     @property
     def info(self):
-        """
-        Return information about the current instance, including shape and disk
-        usage of each image and the image stack.
-        """
         return str(self)
 
     @property
@@ -602,10 +595,10 @@ def _detect_format(path: PathTypes) -> type[Stack]:
     # List/array input. Only TIFF and MMStack supported (for now).
     paths = [Path(p) for p in path]
     names = [p.name.lower() for p in paths]
-    if np.all([".ome." in name for name in names]):
+    if all(".ome." in name for name in names):
         return MMStack
 
-    if np.all([".tif" in name and ".ome." not in name for name in names]):
+    if all(".tif" in name and ".ome." not in name for name in names):
         return TIFFStack
 
     raise ValueError(f"Unsupported file type(s): '{names}'.")
