@@ -553,6 +553,12 @@ class TIFFStack(Stack):
     def __init__(self, image_paths: Path | list[Path] | npt.NDArray[Path]):
         self.images = np.atleast_1d(image_paths)
         tmp = imread(self.images[0])
+
+        if tmp.ndim > 2:
+            raise ValueError(
+                f"Only stacks of 2D arrays are supported. Got {tmp.ndim}."
+            )
+
         self.shape = (len(self.images), tmp.shape[0], tmp.shape[1])
         self.dtype = tmp.dtype
         self.image_nbytes = tmp.nbytes
@@ -564,12 +570,11 @@ class TIFFStack(Stack):
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        return np.atleast_3d(
-            imread(
-                [str(path) for path in self.images[indices]],
-                ioworkers=CPU_COUNT // 2,
-            )
+        images = imread(
+            [str(path) for path in self.images[indices]],
+            ioworkers=CPU_COUNT // 2,
         )
+        return images[np.newaxis, :, :] if images.ndim == 2 else images
 
     def close(self):
         pass

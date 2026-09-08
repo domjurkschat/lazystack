@@ -300,3 +300,55 @@ def test_mm_get_image(example_mmstack_path, example_3d_data):
     assert np.array_equal(mm[[0, 5, 7]], data[[0, 5, 7]])
     assert np.array_equal(mm[0:5], data[0:5])
     assert np.array_equal(mm, data)
+
+
+@pytest.fixture
+def example_tiff_paths(tmp_path, example_3d_data):
+    tiff_paths = []
+    for i, image in enumerate(example_3d_data.astype(np.uint16)):
+        path = tmp_path / f"{i:04}.tif"
+        imwrite(path, image)
+        tiff_paths.append(path)
+    return tiff_paths
+
+
+def test_tiff_attributes(example_tiff_paths, example_3d_data):
+    tiffs = TIFFStack(example_tiff_paths)
+    data = example_3d_data.astype(np.uint16)
+    assert tiffs.shape == data.shape
+    assert tiffs.image_nbytes == data[0].nbytes
+    assert tiffs.nbytes == data.nbytes
+    assert tiffs.dtype == np.uint16
+    assert tiffs.size == data.size
+    assert tiffs.itemsize == data.itemsize
+
+
+def test_tiff_get_image(example_tiff_paths, example_3d_data):
+    tiffs = TIFFStack(example_tiff_paths)
+    data = example_3d_data.astype(np.uint16)
+    assert np.array_equal(tiffs[0], data[0])
+    assert np.array_equal(tiffs[[0, 5, 7]], data[[0, 5, 7]])
+    assert np.array_equal(tiffs[0:5], data[0:5])
+    assert np.array_equal(tiffs, data)
+
+
+def test_tiff_single(example_tiff_paths, example_3d_data):
+    tiff = TIFFStack(example_tiff_paths[0])
+    data = example_3d_data.astype(np.uint16)[0]
+    assert np.array_equal(tiff, data[np.newaxis, :, :])
+
+
+@pytest.fixture
+def example_3d_tiff_paths(tmp_path, example_3d_data):
+    tiff_paths = []
+    for i, image in enumerate(example_3d_data.astype(np.uint16)):
+        image = image[np.newaxis, :, :]
+        path = tmp_path / f"{i:04}.tif"
+        imwrite(path, image)
+        tiff_paths.append(path)
+    return tiff_paths
+
+
+def test_tiff_2d_only(example_3d_tiff_paths):
+    with pytest.raises(ValueError):
+        TIFFStack(example_3d_tiff_paths)
