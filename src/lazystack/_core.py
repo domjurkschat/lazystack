@@ -331,9 +331,9 @@ class HISStack(Stack):
     """
 
     def __init__(self, path: Path):
-        self.file = path.open("rb")
+        self._file = path.open("rb")
 
-        header = self.file.read(64)
+        header = self._file.read(64)
         self.metadata_nbytes = int.from_bytes(header[2:4], byteorder="little")
         self.width = int.from_bytes(header[4:6], byteorder="little")
         self.height = int.from_bytes(header[6:8], byteorder="little")
@@ -344,7 +344,9 @@ class HISStack(Stack):
         self.nbytes = self.image_nbytes * num_images
 
         self.shape = (num_images, self.height, self.width)
-        self.dtype = np.uint16 if self.file_type == 2 else np.uint8
+        self.dtype = (
+            np.dtype(np.uint16) if self.file_type == 2 else np.dtype(np.uint8)
+        )
 
         self.metadata = self._parse_metadata()
         self._image_offsets = self._calc_image_offsets()
@@ -353,9 +355,9 @@ class HISStack(Stack):
         self.close()
 
     def _parse_metadata(self) -> dict[str, dict[str, str]]:
-        self.file.seek(64, 0)
+        self._file.seek(64, 0)
 
-        metadata = self.file.read(self.metadata_nbytes)
+        metadata = self._file.read(self.metadata_nbytes)
         metadata = metadata.decode("utf-8", errors="ignore").rstrip("\x00")
         metadata = metadata.replace("[", "\n[")
 
@@ -382,31 +384,31 @@ class HISStack(Stack):
         return metadata_dict
 
     def _calc_image_offsets(self) -> npt.NDArray[np.integer]:
-        self.file.seek(64 + self.metadata_nbytes, 0)
+        self._file.seek(64 + self.metadata_nbytes, 0)
 
         image_offsets = np.empty(self.shape[0], dtype=np.int64)
-        image_offsets[0] = self.file.tell()
+        image_offsets[0] = self._file.tell()
 
-        self.file.seek(self.image_nbytes, 1)
+        self._file.seek(self.image_nbytes, 1)
 
         for i in range(1, self.shape[0]):
-            header = self.file.read(64)
+            header = self._file.read(64)
 
             if not header:
                 break
 
             gap = int.from_bytes(header[2:4], byteorder="little")
 
-            image_offset = self.file.tell() + gap
+            image_offset = self._file.tell() + gap
             image_offsets[i] = image_offset
 
-            self.file.seek(self.image_nbytes + gap, 1)
+            self._file.seek(self.image_nbytes + gap, 1)
 
         return image_offsets
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        self.file.seek(self._image_offsets[index], 0)
-        image_bytes = self.file.read(self.image_nbytes)
+        self._file.seek(self._image_offsets[index], 0)
+        image_bytes = self._file.read(self.image_nbytes)
         return np.frombuffer(image_bytes, dtype=self.dtype).reshape(
             (self.height, self.width)
         )
@@ -414,14 +416,13 @@ class HISStack(Stack):
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        offsets = self._image_offsets[indices]
-        start = offsets[0]
-        stop = offsets[-1]
-
-        self.file.seek(start, 0)
-        buffer = self.file.read(stop - start + self.image_nbytes)
-
         if np.all(np.diff(indices) == 1):
+            offsets = self._image_offsets[indices]
+            start = offsets[0]
+            stop = offsets[-1]
+            self._file.seek(start, 0)
+            buffer = self._file.read(stop - start + self.image_nbytes)
+
             out = np.empty(
                 (len(indices), self.height, self.width), dtype=self.dtype
             )
@@ -432,16 +433,17 @@ class HISStack(Stack):
                 out[i] = np.frombuffer(image_bytes, dtype=self.dtype).reshape(
                     self.height, self.width
                 )
+
         else:
             out = np.stack([self._get_image(index) for index in indices])
 
         return out
 
     def close(self):
-        file_open = getattr(self, "file", None)
+        file_open = getattr(self, "_file", None)
         if file_open:
-            self.file.close()
-            self.file = None
+            self._file.close()
+            self._file = None
 
 
 class DCIMGStack(Stack):
@@ -453,26 +455,28 @@ class DCIMGStack(Stack):
     """
 
     def __init__(self, input_path: Path):
-        self.dcimg_file = DCIMGFile(input_path)
-        self.shape = self.dcimg_file.shape
-        self.dtype = self.dcimg_file.dtype
-        self.image_nbytes = np.array(self.dcimg_file[0]).nbytes
+        self._file = DCIMGFile(input_path)
+        self.shape = self._file.shape
+        self.dtype = self._file.dtype
+        self.image_nbytes = np.array(self._file[0]).nbytes
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def __del__(self):
-        self.dcimg_file.close()
+        self.close()
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        return np.asarray(self.dcimg_file[index])
+        return np.asarray(self._file[index])
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        return np.asarray(self.dcimg_file[indices])
+        return np.asarray(self._file[indices])
 
     def close(self):
-        if hasattr(self, "dcimg_file"):
-            self.dcimg_file.close()
+        file_open = getattr(self, "_file", None)
+        if file_open:
+            self._file.close()
+            self._file = None
 
 
 class HDFStack(Stack):

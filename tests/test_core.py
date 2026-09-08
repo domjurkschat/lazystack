@@ -213,16 +213,23 @@ def example_his(tmp_path, example_3d_data):
 
 def test_his_attributes(example_his, example_3d_data):
     his = HISStack(example_his)
-    assert his.shape == example_3d_data.shape
+    data = example_3d_data.astype(np.uint16)
+    assert his.shape == data.shape
     assert his.file_type == 2
-    assert his.image_nbytes == example_3d_data[0].astype(np.uint16).nbytes
+    assert his.image_nbytes == data[0].nbytes
+    assert his.nbytes == data.nbytes
     assert his.dtype == np.uint16
+    assert his.size == data.size
+    assert his.itemsize == data.itemsize
 
 
 def test_his_get_image(example_his, example_3d_data):
     his = HISStack(example_his)
-    assert np.array_equal(his[[0, 5, 7]], example_3d_data[[0, 5, 7]])
-    assert np.array_equal(his[0:5], example_3d_data[0:5])
+    data = example_3d_data.astype(np.uint16)
+    assert np.array_equal(his[0], data[0])
+    assert np.array_equal(his[[0, 5, 7]], data[[0, 5, 7]])
+    assert np.array_equal(his[0:5], data[0:5])
+    assert np.array_equal(his, data)
 
 
 def test_lazystack_dispatch(tmp_path, example_stack):
