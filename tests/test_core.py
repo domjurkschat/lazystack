@@ -1,6 +1,7 @@
 import h5py
 import numpy as np
 import pytest
+from tifffile import TiffWriter, imwrite
 
 from lazystack._core import (
     DCIMGStack,
@@ -267,3 +268,35 @@ def test_lazystack_no_hdf_dset_name(tmp_path, example_stack):
     # `example_stack` creates `tmp.h5`.
     with pytest.raises(ValueError):
         lazystack(tmp_path / "tmp.h5")
+
+
+@pytest.fixture
+def example_mmstack_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.ome.tif"
+    with TiffWriter(output_path, ome=True, bigtiff=False) as writer:
+        writer.write(
+            example_3d_data.astype(np.uint16),
+            photometric="minisblack",
+            metadata={"axes": "ZYX"},
+        )
+    return output_path
+
+
+def test_mm_attributes(example_mmstack_path, example_3d_data):
+    mm = MMStack(example_mmstack_path)
+    data = example_3d_data.astype(np.uint16)
+    assert mm.shape == data.shape
+    assert mm.image_nbytes == data[0].nbytes
+    assert mm.nbytes == data.nbytes
+    assert mm.dtype == np.uint16
+    assert mm.size == data.size
+    assert mm.itemsize == data.itemsize
+
+
+def test_mm_get_image(example_mmstack_path, example_3d_data):
+    mm = MMStack(example_mmstack_path)
+    data = example_3d_data.astype(np.uint16)
+    assert np.array_equal(mm[0], data[0])
+    assert np.array_equal(mm[[0, 5, 7]], data[[0, 5, 7]])
+    assert np.array_equal(mm[0:5], data[0:5])
+    assert np.array_equal(mm, data)

@@ -5,13 +5,14 @@ from multiprocessing import cpu_count
 from pathlib import Path
 from re import findall
 from typing import TypeAlias
+from warnings import warn
 
 import h5py
 import numpy as np
 import numpy.typing as npt
 from dcimg import DCIMGFile
 from prefetch_generator import prefetch
-from tifffile import TiffFile, TiffPage, imread
+from tifffile import TiffFile, imread
 
 CPU_COUNT = cpu_count()
 
@@ -166,28 +167,6 @@ def iter_chunks(
             )
 
     return _generator()
-
-
-def _read_ome_mmstack(image_paths: list[Path]) -> npt.NDArray[TiffPage]:
-    """
-    Read MMStack or OME-TIFF file(s) and return a NumPy array of `TiffPage`
-    instances. Only loads a single file if given, avoiding series parsing.
-    `TiffPage` instances are only loaded into memory as images once cast to
-    arrays.
-    """
-    with TiffFile(image_paths[0]) as ome:
-        if len(image_paths) == 1:
-            # Single-file input, avoid opening whole linked stack.
-            pages = ome.pages
-        else:
-            if not ome.series:
-                raise ValueError(f"No series found in {image_paths}.")
-
-            # Our data contains only one series.
-            pages = ome.series[0]
-
-        # Remove None data from missing pages and return.
-        return np.array([page for page in pages if page is not None])
 
 
 def _to_indices(items: list | npt.NDArray) -> npt.NDArray[np.integer]:
@@ -523,9 +502,23 @@ class MMStack(Stack):
     """
 
     def __init__(self, image_paths: Path | list[Path] | npt.NDArray[Path]):
-        self.images = _read_ome_mmstack(np.atleast_1d(image_paths))
+        image_paths = np.atleast_1d(image_paths)
+        self._file = TiffFile(image_paths[0])
+        if not self._file.series:
+            raise ValueError(f"No series found in {image_paths}.")
+        if len(image_paths) > 1:
+            warn(
+                "Passing multiple OME-TIFF has no effect -- the whole linked "
+                "series is opened regardless."
+            )
+
+        # 3D data containts one series.
+        series = self._file.series[0]
+
+        # Remove None data from missing pages.
+        self.images = np.array([page for page in series if page is not None])
         tmp = self.images[0].asarray()
-        self.shape = (len(self.images), tmp.shape[0], tmp.shape[1])
+        self.shape = (len(self.images), *tmp.shape)
         self.dtype = tmp.dtype
         self.image_nbytes = tmp.nbytes
         self.nbytes = self.image_nbytes * self.shape[0]
@@ -539,7 +532,13 @@ class MMStack(Stack):
         return np.stack([self.images[index].asarray() for index in indices])
 
     def close(self):
-        pass
+        file_open = getattr(self, "_file", None)
+        if file_open:
+            self._file.close()
+            self._file = None
+
+    def __del__(self):
+        self.close()
 
 
 class TIFFStack(Stack):
