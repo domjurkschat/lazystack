@@ -7,11 +7,14 @@ only load the underlying data into memory when absolutely necessary.
 
 **Supported formats**
 
-* HDF (.h5, .hdf5, ...).
-* TIFF (.tif, .tiff).
-* Micro-Manager TIFF (.ome.tif).
+* HDF (via h5py) — datasets must be (num_images, height, width) grayscale frames.
+* TIFF and other TIFF-family files (via tifffile) — grayscale stacks only; colour/multichannel images and hyperstacks are not supported.
 * Hamamatsu DCIMG (.dcimg).
 * Hamamatsu HIS (.his).
+
+Files that store the whole stack as a single 3D image (rather than a sequence
+of 2D images) require the optional `zarr` package (`pip install zarr`).
+
 
 ## Installation
 
@@ -87,7 +90,7 @@ with lazystack(filenames) as images:
     # Do some stuff.
 ```
 
-Currently, this only supports TIFF and Micro-Manager TIFF files.
+Currently, this only supports TIFF files.
 
 lazystack also provides `iter_chunks` for prefetching and yielding 
 successive chunks along any axis of a 3D array (or lazystack), e.g.:
