@@ -7,7 +7,7 @@ only load the underlying data into memory when absolutely necessary.
 
 **Supported formats**
 
-* HDF (via h5py) — datasets must be (num_images, height, width) grayscale frames.
+* HDF (via h5py) — datasets must be (num_images, height, width) grayscale images.
 * TIFF and other TIFF-family files (via tifffile) — grayscale stacks only; colour/multichannel images and hyperstacks are not supported.
 * Hamamatsu DCIMG (.dcimg).
 * Hamamatsu HIS (.his).
@@ -93,7 +93,7 @@ with lazystack(filenames) as images:
 Currently, this only supports TIFF files.
 
 lazystack also provides `iter_chunks` for prefetching and yielding 
-successive chunks along any axis of a 3D array (or lazystack), e.g.:
+successive chunks along any axis of a lazystack (or regular 3D NumPy array), e.g.:
 
 ```python
 from lazystack import lazystack, iter_chunks
