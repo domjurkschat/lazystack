@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 from dcimg import DCIMGFile
 from prefetch_generator import prefetch
-from tifffile import TiffFile, imread
+from tifffile import PHOTOMETRIC, TiffFile, TiffFileError, imread
 
 CPU_COUNT = cpu_count()
 
@@ -453,7 +453,8 @@ class DCIMGStack(Stack):
 
 class HDFStack(Stack):
     """
-    Lazy reader for HDF files, wrapping an ``h5py.Dataset``.
+    Lazy reader for HDF files, wrapping an ``h5py.Dataset``. Datasets are
+    expected to be grayscale and interpreted as (num_images, height, width).
 
     Attributes:
         images (h5py.Dataset): Underlying dataset.
@@ -462,7 +463,19 @@ class HDFStack(Stack):
     def __init__(self, input_path: Path, dset_name: str):
         self._in_hdf = h5py.File(input_path, "r")
         self.images = self._in_hdf[dset_name]
-        self.shape = self.images.shape
+
+        if self.images.ndim not in (2, 3):
+            raise ValueError(
+                f"Only stacks of 2D arrays are supported. Got "
+                f"{self.images.shape[0]} {self.images.ndim}D stacks."
+            )
+
+        self.shape = (
+            (1, *self.images.shape)
+            if self.images.ndim == 2
+            else self.images.shape
+        )
+
         self.dtype = self.images.dtype
         self.image_nbytes = np.array(self.images[0]).nbytes
         self.nbytes = self.image_nbytes * self.shape[0]
@@ -485,44 +498,138 @@ class HDFStack(Stack):
             self._in_hdf = None
 
 
-class MMStack(Stack):
+class TIFFStack(Stack):
     """
-    Lazy reader for Micro-Manager (MMStack) OME-TIFF files.
+    Lazy reader for TIFF-family files via ``tifffile``.
+
+    Files are read as stacks of 2D grayscale images. Colour/multichannel
+    images and hyperstacks (more than three dimensions) are rejected, and
+    pyramidal files load the highest-resolution level only. Files that store
+    the whole stack as a single 3D image (rather than a sequence of 2D
+    images) require the optional ``zarr`` package.
 
     Attributes:
-        images (npt.NDArray): Array of ``TiffPage`` objects from the MMStack
-            series.
+        images: Frame source -- TIFF file paths (multi-file mode), lazy
+            ``TiffPage`` objects (paged mode), or a Zarr array (3D-volume
+            mode).
     """
 
     def __init__(self, image_paths: Path | list[Path] | npt.NDArray[Path]):
-        image_paths = np.atleast_1d(image_paths)
-        self._file = TiffFile(image_paths[0])
+        self.paths = np.atleast_1d(image_paths)
+
+        self._file = TiffFile(self.paths[0])
+
         if not self._file.series:
-            raise ValueError(f"No series found in {image_paths}.")
-        if len(image_paths) > 1:
+            raise ValueError(f"No series found in {self.paths}.")
+
+        series = self._file.series[0]
+        page = series.pages[0]
+
+        if len(self.paths) > 1 and series.is_multifile:
             warn(
-                "Passing multiple OME-TIFF has no effect -- the whole linked "
-                "series is opened regardless."
+                "Passing multiple linked files has no effect -- the whole "
+                "series is opened from the first file regardless. Independent "
+                "files are ignored."
+            )
+            self.paths = self.paths[:1]
+
+        if len(self.paths) == 1:
+            if series.is_pyramidal:
+                warn(
+                    "Pyramidal series are partially supported. Taking maximum "
+                    "resolution only."
+                )
+            if series.ndim not in (2, 3):
+                raise ValueError("Hyperstacks are not supported.")
+
+            if (
+                page.photometric
+                not in (PHOTOMETRIC.MINISBLACK, PHOTOMETRIC.MINISWHITE)
+                or page.samplesperpixel != 1
+            ):
+                raise ValueError(
+                    "Colour/multichannel stacks are not supported."
+                )
+
+            # Remove None data from missing pages.
+            self.images = np.array(
+                [page for page in series if page is not None]
             )
 
-        # 3D data containts one series.
-        series = self._file.series[0]
+            if page.ndim == 3:
+                try:
+                    import zarr
 
-        # Remove None data from missing pages.
-        self.images = np.array([page for page in series if page is not None])
-        tmp = self.images[0].asarray()
-        self.shape = (len(self.images), *tmp.shape)
-        self.dtype = tmp.dtype
-        self.image_nbytes = tmp.nbytes
-        self.nbytes = self.image_nbytes * self.shape[0]
+                    self._mode = "zarr"
+
+                    # Take the first series and first pyramidal level only.
+                    zarr_store = self._file.aszarr(series=0, level=0)
+                    self.images = zarr.open(zarr_store, mode="r")
+                    self.shape = self.images.shape
+
+                except ImportError as e:
+                    raise ImportError(
+                        "Please install Zarr to enable reading of 3D-page "
+                        "TIFF files."
+                    ) from e
+
+            else:
+                self._mode = "pages"
+
+                # Single-TIFF case.
+                if series.ndim == 2:
+                    self.shape = (1, *series.shape)
+                else:
+                    self.shape = (len(self.images), *series.shape[1:])
+
+            self.dtype = series.dtype
+            self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+            self.nbytes = self.image_nbytes * self.shape[0]
+
+        else:
+            self._mode = "paths"
+
+            num_images = len(self.paths)
+
+            if series.ndim > 2:
+                raise ValueError(
+                    f"Only stacks of 2D arrays are supported. Got "
+                    f"{num_images} {series.ndim}D stacks."
+                )
+
+            self.shape = (num_images, *series.shape)
+            self.dtype = series.dtype
+            self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+            self.nbytes = self.image_nbytes * self.shape[0]
+            self.images = self.paths
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        return self.images[index].asarray()
+        if self._mode == "zarr":
+            return self.images[index]
+
+        if self._mode == "pages":
+            return self.images[index].asarray()
+
+        if self._mode == "paths":
+            return imread(str(self.images[index]))
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        return np.stack([self.images[index].asarray() for index in indices])
+        if self._mode == "zarr":
+            return self.images[indices]
+
+        if self._mode == "pages":
+            return np.stack(
+                [self.images[index].asarray() for index in indices]
+            )
+
+        if self._mode == "paths":
+            images = imread(
+                [str(path) for path in self.images[indices]],
+                ioworkers=CPU_COUNT // 2,
+            )
+            return images[np.newaxis, :, :] if images.ndim == 2 else images
 
     def close(self):
         file_open = getattr(self, "_file", None)
@@ -532,45 +639,6 @@ class MMStack(Stack):
 
     def __del__(self):
         self.close()
-
-
-class TIFFStack(Stack):
-    """
-    Lazy reader for a sequence of TIFF files.
-
-    Attributes:
-        images (npt.NDArray[Path]): TIFF file paths (in caller-provided
-            order).
-    """
-
-    def __init__(self, image_paths: Path | list[Path] | npt.NDArray[Path]):
-        self.images = np.atleast_1d(image_paths)
-        tmp = imread(self.images[0])
-
-        if tmp.ndim > 2:
-            raise ValueError(
-                f"Only stacks of 2D arrays are supported. Got {tmp.ndim}."
-            )
-
-        self.shape = (len(self.images), tmp.shape[0], tmp.shape[1])
-        self.dtype = tmp.dtype
-        self.image_nbytes = tmp.nbytes
-        self.nbytes = self.image_nbytes * self.shape[0]
-
-    def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        return imread(str(self.images[index]))
-
-    def _get_images(
-        self, indices: list[int] | npt.NDArray[np.integer]
-    ) -> npt.NDArray:
-        images = imread(
-            [str(path) for path in self.images[indices]],
-            ioworkers=CPU_COUNT // 2,
-        )
-        return images[np.newaxis, :, :] if images.ndim == 2 else images
-
-    def close(self):
-        pass
 
 
 def _detect_format(path: PathTypes) -> type[Stack]:
@@ -585,20 +653,21 @@ def _detect_format(path: PathTypes) -> type[Stack]:
             return DCIMGStack
         if ".his" in name:
             return HISStack
-        if ".ome." in name:
-            return MMStack
-        if ".tif" in name:
-            return TIFFStack
 
-        raise ValueError(f"Unsupported file type: '{name}'.")
+        try:
+            TiffFile(path)
+        except TiffFileError:
+            raise ValueError(f"Unsupported file type: '{name}'.")
 
-    # List/array input. Only TIFF and MMStack supported (for now).
+        return TIFFStack
+
     paths = [Path(p) for p in path]
     names = [p.name.lower() for p in paths]
-    if all(".ome." in name for name in names):
-        return MMStack
 
-    if all(".tif" in name and ".ome." not in name for name in names):
+    if all(".ome." in name for name in names):
+        return TIFFStack
+
+    if all(".tif" in name and not ".ome." in name for name in names):
         return TIFFStack
 
     raise ValueError(f"Unsupported file type(s): '{names}'.")
@@ -610,9 +679,13 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
     list/array of input paths, with support for multiple file formats.
     Currently supported formats are:
 
-    - HDF5 (.h5, .hdf5, ... ).
-    - TIFF (.tif, .tiff).
-    - Micro-Manager TIFF (.ome.tif).
+    - HDF5 (.h5, .hdf5, ... ), read as (num_images, height, width) grayscale
+      stacks.
+    - TIFF-family files via tifffile (.tif, .tiff, .ome.tif, ... ), e.g.
+      multi-page TIFF, BigTIFF, Micro-Manager MMStack, and NDTiff. Grayscale
+      only; colour/multichannel images and hyperstacks are rejected. Files
+      storing the whole stack as one 3D image require the optional ``zarr``
+      package.
     - Hamamatsu DCIMG (.dcimg).
     - Hamamatsu HIS (.his).
 
@@ -625,8 +698,9 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
 
     Args:
         path: Path or list/array of paths to supported image files
-            to be lazily opened. If a list/array is given, all files must
-            be of the same type.
+            to be lazily opened. If a list/array is given, each file is
+            treated as one frame; linked multi-file series are
+            auto-discovered from the first file.
         dset_name: For HDF input only. Path within HDF file to
             dataset to be lazily opened.
 

@@ -1,3 +1,5 @@
+import sys
+
 import h5py
 import numpy as np
 import pytest
@@ -7,7 +9,6 @@ from lazystack._core import (
     DCIMGStack,
     HDFStack,
     HISStack,
-    MMStack,
     TIFFStack,
     View,
     _detect_format,
@@ -239,13 +240,19 @@ def test_lazystack_dispatch(tmp_path, example_stack):
     )
     assert _detect_format("tmp.dcimg") is DCIMGStack
     assert _detect_format("tmp.his") is HISStack
-    assert _detect_format("tmp.ome.tif") is MMStack
-    assert _detect_format("tmp.tiff") is TIFFStack
+
+    tif_path = tmp_path / "tmp.tif"
+    imwrite(tif_path, np.zeros((3, 4), dtype=np.uint16))
+    assert _detect_format(tif_path) is TIFFStack
+
+    ome_path = tmp_path / "tmp.ome.tif"
+    imwrite(ome_path, np.zeros((3, 4), dtype=np.uint16))
+    assert _detect_format(ome_path) is TIFFStack
 
 
 def test_lazystack_multi_mmstack():
-    assert _detect_format(["a.ome.tif"]) is MMStack
-    assert _detect_format(["a.ome.tif", "b.ome.tif"]) is MMStack
+    assert _detect_format(["a.ome.tif"]) is TIFFStack
+    assert _detect_format(["a.ome.tif", "b.ome.tif"]) is TIFFStack
 
 
 def test_lazystack_multi_tiff():
@@ -260,8 +267,10 @@ def test_lazystack_mixed_multi():
 
 
 def test_lazystack_unsupported_type(tmp_path):
+    path = tmp_path / "tmp.blah"
+    path.write_bytes(b"this is not a tiff file")
     with pytest.raises(ValueError):
-        _detect_format("tmp.blah")
+        _detect_format(path)
 
 
 def test_lazystack_no_hdf_dset_name(tmp_path, example_stack):
@@ -283,7 +292,7 @@ def example_mmstack_path(tmp_path, example_3d_data):
 
 
 def test_mm_attributes(example_mmstack_path, example_3d_data):
-    mm = MMStack(example_mmstack_path)
+    mm = TIFFStack(example_mmstack_path)
     data = example_3d_data.astype(np.uint16)
     assert mm.shape == data.shape
     assert mm.image_nbytes == data[0].nbytes
@@ -294,12 +303,92 @@ def test_mm_attributes(example_mmstack_path, example_3d_data):
 
 
 def test_mm_get_image(example_mmstack_path, example_3d_data):
-    mm = MMStack(example_mmstack_path)
+    mm = TIFFStack(example_mmstack_path)
     data = example_3d_data.astype(np.uint16)
     assert np.array_equal(mm[0], data[0])
     assert np.array_equal(mm[[0, 5, 7]], data[[0, 5, 7]])
     assert np.array_equal(mm[0:5], data[0:5])
     assert np.array_equal(mm, data)
+
+
+@pytest.fixture
+def example_rgb_tiff_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.tif"
+    data = example_3d_data.astype(np.uint16)
+    example_rgb_image = data[0][:, :, np.newaxis]
+    example_rgb_image = np.repeat(example_rgb_image, 3, axis=2)
+    with TiffWriter(output_path) as writer:
+        writer.write(
+            example_rgb_image,
+            photometric="rgb",
+            metadata={"axes": "YXS"},
+        )
+    return output_path
+
+
+def test_tiff_reject_rgb(example_rgb_tiff_path):
+    with pytest.raises(ValueError):
+        TIFFStack(example_rgb_tiff_path)
+
+
+@pytest.fixture
+def example_hyperstack_tiff_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.tif"
+    data = example_3d_data.astype(np.uint16)
+    example_rgb_image = data[np.newaxis, :, :, :]
+    with TiffWriter(output_path) as writer:
+        writer.write(
+            example_rgb_image,
+            metadata={"axes": "TZYX"},
+        )
+    return output_path
+
+
+def test_tiff_reject_hyperstack(example_hyperstack_tiff_path):
+    with pytest.raises(ValueError):
+        TIFFStack(example_hyperstack_tiff_path)
+
+
+@pytest.fixture
+def example_tiff_volumetric_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.tif"
+    with TiffWriter(output_path) as writer:
+        writer.write(
+            example_3d_data.astype(np.uint16),
+            photometric="minisblack",
+            volumetric=True,
+        )
+    return output_path
+
+
+def test_tiff_volumetric_attributes(
+    example_tiff_volumetric_path, example_3d_data
+):
+    tiffs = TIFFStack(example_tiff_volumetric_path)
+    data = example_3d_data.astype(np.uint16)
+    assert tiffs.shape == data.shape
+    assert tiffs.image_nbytes == data[0].nbytes
+    assert tiffs.nbytes == data.nbytes
+    assert tiffs.dtype == np.uint16
+    assert tiffs.size == data.size
+    assert tiffs.itemsize == data.itemsize
+
+
+def test_tiff_volumetric_get_image(
+    example_tiff_volumetric_path, example_3d_data
+):
+    tiffs = TIFFStack(example_tiff_volumetric_path)
+    data = example_3d_data.astype(np.uint16)
+    assert np.array_equal(tiffs[0], data[0])
+    assert np.array_equal(tiffs[[0, 5, 7]], data[[0, 5, 7]])
+    assert np.array_equal(tiffs[0:5], data[0:5])
+    assert np.array_equal(tiffs, data)
+
+
+def test_tiff_volumetric_no_zarr(monkeypatch, example_tiff_volumetric_path):
+    monkeypatch.setitem(sys.modules, "zarr", None)
+    with pytest.raises(ImportError):
+        TIFFStack(example_tiff_volumetric_path)
 
 
 @pytest.fixture
