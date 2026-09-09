@@ -1,9 +1,10 @@
 ## lazystack
 
 This package provides a familiar interface for lazily reading scientific image 
-stacks. It's cross-platform, lightweight, and easy to use. Stacks opened via lazystack 
-are indexable (including NumPy-style fancy indexing), iterable, sliceable, and 
-only load the underlying data into memory when absolutely necessary. 
+stacks, particularly stacks of x-ray images. It's cross-platform, lightweight, 
+and easy to use. Stacks opened via lazystack are indexable (including NumPy-style 
+fancy indexing), iterable, sliceable, and only load the underlying data into 
+memory when absolutely necessary. 
 
 **Supported formats**
 
