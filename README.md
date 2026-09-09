@@ -59,7 +59,7 @@ with lazystack("path/to/somehis.his") as images:
     subsubsubstack = np.asarray(subsubsubstack)
 ```
 
-A stack exposes NumPy-like attributes: ``shape``, ``dtype``, ``size`` (total
+A lazystack exposes NumPy-like attributes: ``shape``, ``dtype``, ``size`` (total
 elements), and ``itemsize`` (bytes per element). Disk usage is available via
 ``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
 A one-line summary is available via ``str(stack)`` or ``stack.info``.
