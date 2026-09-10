@@ -10,9 +10,10 @@ from warnings import warn
 import h5py
 import numpy as np
 import numpy.typing as npt
-from dcimg import DCIMGFile
 from prefetch_generator import prefetch
 from tifffile import PHOTOMETRIC, TiffFile, TiffFileError, TiffPage, imread
+
+from ._dcimg import DCIMGFile
 
 CPU_COUNT = cpu_count()
 

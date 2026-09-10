@@ -23,16 +23,6 @@ wheels = [
 ]
 
 [[package]]
-name = "dcimg"
-version = "0.7.0"
-source = { git = "https://github.com/domjurkschat/dcimg.git?rev=v0.7.0#d63beefab502d495ab67eda85279e1f7c30dedfe" }
-dependencies = [
-    { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
-    { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
-    { name = "numpy", version = "2.5.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.12'" },
-]
-
-[[package]]
 name = "donfig"
 version = "0.8.1.post1"
 source = { registry = "https://pypi.org/simple" }
@@ -174,7 +164,6 @@ name = "lazystack"
 version = "0.4.0"
 source = { editable = "." }
 dependencies = [
-    { name = "dcimg" },
     { name = "h5py" },
     { name = "numpy", version = "2.2.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.11'" },
     { name = "numpy", version = "2.4.6", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.11.*'" },
@@ -195,7 +184,6 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "dcimg", git = "https://github.com/domjurkschat/dcimg.git?rev=v0.7.0" },
     { name = "h5py" },
     { name = "numpy" },
     { name = "prefetch-generator" },

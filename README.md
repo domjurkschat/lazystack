@@ -133,7 +133,6 @@ $ uv run pytest
 ```
 
 **To-do list:**
-* Vendor necessary `dcimg` components and publish to PyPI.
 * Finish test suite.
 * Nested spatial indexing.
 * Stacks of stacks.

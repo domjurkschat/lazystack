@@ -13,7 +13,6 @@ dependencies = [
   "h5py",
   "tifffile",
   "prefetch-generator",
-  "dcimg @ git+https://github.com/domjurkschat/dcimg.git@v0.7.0",
 ]
 [dependency-groups]
 dev = ["pytest", "zarr"]
