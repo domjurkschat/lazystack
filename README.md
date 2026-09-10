@@ -13,7 +13,7 @@ memory when absolutely necessary.
 * Hamamatsu DCIMG (.dcimg).
 * Hamamatsu HIS (.his).
 
-Files that store the whole stack as a single 3D image (rather than a sequence
+TIFF-family files that store the whole stack as a single 3D image (rather than a sequence
 of 2D images) require the optional `zarr` package (`pip install zarr`).
 
 
