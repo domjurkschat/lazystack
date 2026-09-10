@@ -61,22 +61,22 @@ def test_iter_chunks_step_decimates(example_3d_data):
     assert np.array_equal(recon, example_3d_data[::2])
 
 
-def test_iter_chunks_positive_step(example_3d_data):
+def test_iter_chunks_reject_nonpositive_step(example_3d_data):
     with pytest.raises(ValueError):
         iter_chunks(example_3d_data, step=0)
 
 
-def test_iter_chunks_only_3d():
+def test_iter_chunks_reject_non_3d():
     with pytest.raises(ValueError):
         iter_chunks(np.zeros((5, 5)))
 
 
-def test_iter_chunks_bad_axis(example_3d_data):
+def test_iter_chunks_reject_bad_axis(example_3d_data):
     with pytest.raises(ValueError):
         iter_chunks(example_3d_data, axis=3)
 
 
-def test_iter_chunks_bad_prefetch(example_3d_data):
+def test_iter_chunks_reject_negative_prefetch(example_3d_data):
     with pytest.raises(ValueError):
         iter_chunks(example_3d_data, num_prefetch=-1)
 
@@ -166,12 +166,12 @@ def test_view_attributes(example_stack, example_3d_data):
     assert view.itemsize == data.itemsize
 
 
-def test_view_empty(example_stack):
+def test_view_reject_empty(example_stack):
     with pytest.raises(ValueError):
         example_stack[5:5]
 
 
-def test_view_nested_spatial_indexing(example_stack):
+def test_view_reject_nested_spatial_indexing(example_stack):
     view = example_stack[:, 1:, 2:]
     with pytest.raises(NotImplementedError):
         view[:, 1:, 2:]
@@ -234,46 +234,70 @@ def test_his_get_image(example_his, example_3d_data):
     assert np.array_equal(his, data)
 
 
-def test_lazystack_dispatch(tmp_path, example_stack):
+@pytest.fixture
+def example_tiff_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.tif"
+    imwrite(output_path, example_3d_data[0].astype(np.uint16))
+    return output_path
+
+
+@pytest.fixture
+def example_good_tiff_bad_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.dat"
+    imwrite(output_path, example_3d_data[0].astype(np.uint16))
+    return output_path
+
+
+def test_lazystack_dispatch(
+    tmp_path, example_stack, example_tiff_path, example_good_tiff_bad_path
+):
     assert isinstance(
         lazystack(tmp_path / "tmp.h5", dset_name="images"), HDFStack
     )
     assert _detect_format("tmp.dcimg") is DCIMGStack
     assert _detect_format("tmp.his") is HISStack
-
-    tif_path = tmp_path / "tmp.tif"
-    imwrite(tif_path, np.zeros((3, 4), dtype=np.uint16))
-    assert _detect_format(tif_path) is TIFFStack
-
-    ome_path = tmp_path / "tmp.ome.tif"
-    imwrite(ome_path, np.zeros((3, 4), dtype=np.uint16))
-    assert _detect_format(ome_path) is TIFFStack
+    assert _detect_format(example_tiff_path) is TIFFStack
+    assert _detect_format(example_good_tiff_bad_path) is TIFFStack
 
 
-def test_lazystack_multi_mmstack():
-    assert _detect_format(["a.ome.tif"]) is TIFFStack
-    assert _detect_format(["a.ome.tif", "b.ome.tif"]) is TIFFStack
+@pytest.fixture
+def example_unsupported_tiff_path(tmp_path):
+    output_path = tmp_path / "tmp.blah"
+    output_path.write_bytes(b"This is not a TIFF file.")
+    return output_path
 
 
-def test_lazystack_multi_tiff():
-    assert _detect_format(["a.tif"]) is TIFFStack
-    assert _detect_format(["a.tif", "b.tif"]) is TIFFStack
-    assert _detect_format(["a.tif", "b.tiff"]) is TIFFStack
-
-
-def test_lazystack_mixed_multi():
+def test_dispatch_reject_unsupported_type(example_unsupported_tiff_path):
     with pytest.raises(ValueError):
-        _detect_format(["a.tif", "b.ome.tif"])
+        _detect_format(example_unsupported_tiff_path)
 
 
-def test_lazystack_unsupported_type(tmp_path):
-    path = tmp_path / "tmp.blah"
-    path.write_bytes(b"this is not a tiff file")
+def test_dispatch_reject_empty_list():
     with pytest.raises(ValueError):
-        _detect_format(path)
+        _detect_format([])
 
 
-def test_lazystack_no_hdf_dset_name(tmp_path, example_stack):
+@pytest.fixture
+def example_tiff_paths(tmp_path, example_3d_data):
+    tiff_paths = []
+    for i, image in enumerate(example_3d_data.astype(np.uint16)):
+        path = tmp_path / f"{i:04}.tif"
+        imwrite(path, image)
+        tiff_paths.append(path)
+    return tiff_paths
+
+
+def test_dispatch_reject_unsupported_mix(
+    example_unsupported_tiff_path, example_tiff_paths
+):
+    paths = np.concatenate(
+        (example_tiff_paths, [example_unsupported_tiff_path])
+    )
+    with pytest.raises(ValueError):
+        _detect_format(paths)
+
+
+def test_lazystack_reject_no_hdf_dset_name(tmp_path, example_stack):
     # `example_stack` creates `tmp.h5`.
     with pytest.raises(ValueError):
         lazystack(tmp_path / "tmp.h5")
@@ -385,20 +409,12 @@ def test_tiff_volumetric_get_image(
     assert np.array_equal(tiffs, data)
 
 
-def test_tiff_volumetric_no_zarr(monkeypatch, example_tiff_volumetric_path):
+def test_tiff_volumetric_reject_no_zarr(
+    monkeypatch, example_tiff_volumetric_path
+):
     monkeypatch.setitem(sys.modules, "zarr", None)
     with pytest.raises(ImportError):
         TIFFStack(example_tiff_volumetric_path)
-
-
-@pytest.fixture
-def example_tiff_paths(tmp_path, example_3d_data):
-    tiff_paths = []
-    for i, image in enumerate(example_3d_data.astype(np.uint16)):
-        path = tmp_path / f"{i:04}.tif"
-        imwrite(path, image)
-        tiff_paths.append(path)
-    return tiff_paths
 
 
 def test_tiff_attributes(example_tiff_paths, example_3d_data):
@@ -424,7 +440,9 @@ def test_tiff_get_image(example_tiff_paths, example_3d_data):
 def test_tiff_single(example_tiff_paths, example_3d_data):
     tiff = TIFFStack(example_tiff_paths[0])
     data = example_3d_data.astype(np.uint16)[0]
-    assert np.array_equal(tiff, data[np.newaxis, :, :])
+    data = data[np.newaxis, :, :]
+    assert tiff.shape == data.shape
+    assert np.array_equal(tiff, data)
 
 
 @pytest.fixture
@@ -438,6 +456,33 @@ def example_3d_tiff_paths(tmp_path, example_3d_data):
     return tiff_paths
 
 
-def test_tiff_2d_only(example_3d_tiff_paths):
+def test_tiff_reject_3d_paths(example_3d_tiff_paths):
     with pytest.raises(ValueError):
         TIFFStack(example_3d_tiff_paths)
+
+
+def test_tiff_reject_multi_rgb(example_rgb_tiff_path):
+    with pytest.raises(ValueError):
+        TIFFStack(np.repeat(example_rgb_tiff_path, 2))
+
+
+def test_tiff_reject_multi_mixed_shape(tmp_path):
+    path1 = tmp_path / "tmp1.tif"
+    path2 = tmp_path / "tmp2.tif"
+
+    imwrite(path1, np.zeros((2, 2), dtype=np.uint16))
+    imwrite(path2, np.zeros((3, 3), dtype=np.uint16))
+
+    with pytest.raises(ValueError):
+        TIFFStack([path1, path2])
+
+
+def test_tiff_reject_multi_mixed_dtype(tmp_path):
+    path1 = tmp_path / "tmp1.tif"
+    path2 = tmp_path / "tmp2.tif"
+
+    imwrite(path1, np.zeros((2, 2), dtype=np.uint16))
+    imwrite(path2, np.zeros((2, 2), dtype=np.uint32))
+
+    with pytest.raises(ValueError):
+        TIFFStack([path1, path2])

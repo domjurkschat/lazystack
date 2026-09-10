@@ -12,7 +12,7 @@ import numpy as np
 import numpy.typing as npt
 from dcimg import DCIMGFile
 from prefetch_generator import prefetch
-from tifffile import PHOTOMETRIC, TiffFile, TiffFileError, imread
+from tifffile import PHOTOMETRIC, TiffFile, TiffFileError, TiffPage, imread
 
 CPU_COUNT = cpu_count()
 
@@ -160,6 +160,14 @@ def iter_chunks(
             )
 
     return _generator()
+
+
+def _is_multichannel(page: TiffPage) -> bool:
+    return (
+        page.photometric
+        not in (PHOTOMETRIC.MINISBLACK, PHOTOMETRIC.MINISWHITE)
+        or page.samplesperpixel != 1
+    )
 
 
 def _to_indices(items: list | npt.NDArray) -> npt.NDArray[np.integer]:
@@ -534,21 +542,18 @@ class TIFFStack(Stack):
             self.paths = self.paths[:1]
 
         if len(self.paths) == 1:
+            if series.ndim not in (2, 3):
+                raise ValueError("Hyperstacks are not supported.")
+
+            if _is_multichannel(page):
+                raise ValueError(
+                    "Colour/multichannel stacks are not supported."
+                )
+
             if series.is_pyramidal:
                 warn(
                     "Pyramidal series are partially supported. Taking maximum "
                     "resolution only."
-                )
-            if series.ndim not in (2, 3):
-                raise ValueError("Hyperstacks are not supported.")
-
-            if (
-                page.photometric
-                not in (PHOTOMETRIC.MINISBLACK, PHOTOMETRIC.MINISWHITE)
-                or page.samplesperpixel != 1
-            ):
-                raise ValueError(
-                    "Colour/multichannel stacks are not supported."
                 )
 
             # Remove None data from missing pages.
@@ -588,17 +593,48 @@ class TIFFStack(Stack):
 
         else:
             self._mode = "paths"
+            self._file.close()
+            self._file = None
 
-            num_images = len(self.paths)
+            self.shape = None
+            self.dtype = None
 
-            if series.ndim > 2:
-                raise ValueError(
-                    f"Only stacks of 2D arrays are supported. Got "
-                    f"{num_images} {series.ndim}D stacks."
-                )
+            for path in self.paths:
+                with TiffFile(path) as path_file:
+                    if not path_file.series:
+                        raise ValueError(
+                            f"No series found in {path}. Ensure all paths "
+                            f"specify valid TIFF files."
+                        )
 
-            self.shape = (num_images, *series.shape)
-            self.dtype = series.dtype
+                    path_series = path_file.series[0]
+                    if path_series.ndim != 2:
+                        raise ValueError(
+                            f"All paths must specify 2D images, but {path} is "
+                            f"{path_series.ndim}D."
+                        )
+
+                    path_page = path_series.pages[0]
+                    if _is_multichannel(path_page):
+                        raise ValueError(
+                            "Colour/multichannel images are not supported."
+                        )
+
+                    # Assign shape and dtype from first file -- all others must
+                    #   match.
+                    if self.shape is None:
+                        self.shape = (len(self.paths), *path_series.shape)
+                        self.dtype = path_series.dtype
+
+                    if path_series.shape != self.shape[1:]:
+                        raise ValueError(
+                            "All images must have the same shape."
+                        )
+                    if path_series.dtype != self.dtype:
+                        raise ValueError(
+                            "All images must have the same data type."
+                        )
+
             self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
             self.nbytes = self.image_nbytes * self.shape[0]
             self.images = self.paths
@@ -655,22 +691,29 @@ def _detect_format(path: PathTypes) -> type[Stack]:
             return HISStack
 
         try:
-            TiffFile(path)
+            with TiffFile(path):
+                pass
         except TiffFileError:
             raise ValueError(f"Unsupported file type: '{name}'.")
 
         return TIFFStack
 
-    paths = [Path(p) for p in path]
-    names = [p.name.lower() for p in paths]
+    if len(path) == 0:
+        raise ValueError("Received an empty list or array.")
 
-    if all(".ome." in name for name in names):
-        return TIFFStack
+    for p in path:
+        try:
+            with TiffFile(p):
+                pass
 
-    if all(".tif" in name and not ".ome." in name for name in names):
-        return TIFFStack
+        except TiffFileError:
+            raise ValueError(
+                f"Unsupported file type: '{p}'. List/array input must contain "
+                f"paths to 2D grayscale images contained in TIFF-family files "
+                f"readable by `tifffile`."
+            )
 
-    raise ValueError(f"Unsupported file type(s): '{names}'.")
+    return TIFFStack
 
 
 def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
