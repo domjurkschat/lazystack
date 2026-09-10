@@ -133,9 +133,9 @@ $ uv run pytest
 ```
 
 **To-do list:**
-* Finish test suite.
 * Nested spatial indexing.
 * Stacks of stacks.
 * Other file formats.
+* Colour/multichannel and hyperstack support?
 
 
