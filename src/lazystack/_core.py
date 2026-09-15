@@ -4,6 +4,7 @@ from collections.abc import Iterator
 from multiprocessing import cpu_count
 from pathlib import Path
 from re import findall
+from types import EllipsisType
 from typing import TypeAlias
 from warnings import warn
 
@@ -35,6 +36,7 @@ class Stack:
 
     Attributes:
         shape (tuple): Dimensions as (num_images, height, width).
+        ndim (int): Number of dimensions.
         dtype (npt.DTypeLike): Data type of each image.
         image_nbytes (int): Bytes of a single image.
         nbytes (int): Total bytes of the stack.
@@ -80,9 +82,22 @@ class Stack:
             raise ValueError("copy=False is not supported.")
         return self.asarray(dtype)
 
+    def close(self):
+        file_open = getattr(self, "_file", None)
+        if file_open:
+            self._file.close()
+            self._file = None
+
+    def __del__(self):
+        self.close()
+
     @property
     def info(self):
         return str(self)
+
+    @property
+    def ndim(self):
+        return len(self.shape)
 
     @property
     def size(self):
@@ -94,14 +109,15 @@ class Stack:
 
 
 def iter_chunks(
-    array: npt.NDArray | View,
+    object: npt.NDArray | View,
     chunk_size_gb: float = 5,
     num_prefetch: int = 1,
     axis: int = 0,
     step: int = 1,
 ) -> Iterator[tuple[npt.NDArray, int, int]]:
     """
-    Yield successive chunks along an axis of a 3D array with prefetching.
+    Yield successive chunks along an axis of a 3D NumPy-like array (or View)
+    with prefetching.
 
     Args:
         array: Array or view to be chunked.
@@ -120,20 +136,19 @@ def iter_chunks(
     """
     if step < 1:
         raise ValueError(f"`step` must be at least one, but got {step=}.")
-    if len(array.shape) != 3:
+    if object.ndim != 3:
         raise ValueError(
-            f"Only 3D arrays are supported, but got {array.shape=}"
+            f"Only 3D arrays are supported, but got {object.shape=}"
         )
     if axis not in (0, 1, 2):
         raise ValueError(f"`axis` must be 0, 1, or 2, but got {axis}.")
-    if num_prefetch < 0:
+    if num_prefetch < 1:
         raise ValueError(
-            f"`num_prefetch` must be positive, but got {num_prefetch}. Set "
-            f"`num_prefetch=0` to remove prefetch limit."
+            f"`num_prefetch` must be at least 1, but got {num_prefetch}."
         )
 
     # Calculate how much memory one item occupies along the batch axis.
-    image_nbytes = array.nbytes // array.shape[axis]
+    image_nbytes = object.nbytes // object.shape[axis]
 
     # Calculate how many items can fit into chunk allowance, ensuring this is
     #   never zero.
@@ -149,13 +164,15 @@ def iter_chunks(
 
     @prefetch(max_prefetch=num_prefetch)
     def _generator() -> Iterator[tuple[npt.NDArray, int, int]]:
-        for start in range(0, array.shape[axis], chunk_size):
-            stop = np.minimum(array.shape[axis], start + chunk_size)
+        for start in range(0, object.shape[axis], chunk_size):
+            stop = np.minimum(object.shape[axis], start + chunk_size)
             slices[axis] = slice(start, stop, step)
+
+            indices = slices[axis] if axis == 0 else tuple(slices)
 
             # View is materialised by `np.asarray`.
             yield (
-                np.asarray(array[tuple(slices)]),
+                np.asarray(object[indices]),
                 start,
                 stop,
             )
@@ -167,16 +184,32 @@ def _is_multichannel(page: TiffPage) -> bool:
     return (
         page.photometric
         not in (PHOTOMETRIC.MINISBLACK, PHOTOMETRIC.MINISWHITE)
-        or page.samplesperpixel != 1
-    )
+        and page.photometric is not None
+    ) or page.samplesperpixel != 1
 
 
-def _to_indices(items: list | npt.NDArray) -> npt.NDArray[np.integer]:
+def _to_indices(
+    items: list | npt.NDArray, shape: tuple
+) -> npt.NDArray[np.integer]:
     """
     Converts boolean mask to indices if necessary and returns a NumPy array.
     """
     items = np.asarray(items)
+
+    if items.dtype == bool and len(items) != shape[0]:
+        raise ValueError(
+            "Boolean mask must have the same length as base object."
+        )
+
     return np.nonzero(items)[0] if items.dtype == bool else items
+
+
+def _reject_bool(items: Items):
+    if isinstance(items, bool | np.bool_):
+        raise TypeError(
+            "Single boolean indexing is invalid. Use a boolean mask with the "
+            "same length as the base object."
+        )
 
 
 def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
@@ -185,6 +218,7 @@ def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
     of the first axis returns a materialised 2D NumPy array. Otherwise, a lazy
     ``View`` is returned.
     """
+    _reject_bool(items)
 
     if isinstance(items, int | np.integer):
         return base._get_image(items)
@@ -194,26 +228,31 @@ def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
         return View(base, indices)
 
     if isinstance(items, list | np.ndarray):
-        indices = _to_indices(items)
+        indices = _to_indices(items, base.shape)
         return View(base, indices)
 
     if isinstance(items, tuple):
         z_items = items[0]
         yx_indices = items[1:]
 
+        _reject_bool(z_items)
+
         if isinstance(z_items, int | np.integer):
             return base._get_image(z_items)[yx_indices]
 
-        elif isinstance(z_items, slice):
+        elif isinstance(z_items, slice | EllipsisType):
             z_indices = np.arange(base.shape[0])[z_items]
 
         elif isinstance(z_items, list | np.ndarray):
-            z_indices = _to_indices(z_items)
+            z_indices = _to_indices(z_items, base.shape)
+
+        else:
+            raise TypeError(f"Unsupported z-axis item type: {items}.")
 
         return View(base, z_indices, yx_indices)
 
     else:
-        raise TypeError
+        raise TypeError(f"Unsupported z-axis item type: {items}.")
 
 
 class View:
@@ -227,6 +266,7 @@ class View:
 
     Attributes:
         shape (tuple): Dimensions of the view (num_images, height, width).
+        ndim (int): Number of dimensions.
         dtype (npt.DTypeLike): Data type of the underlying image data on disk.
         image_nbytes (int): Number of bytes of each image after spatial
             slicing.
@@ -238,7 +278,14 @@ class View:
 
     def __init__(self, base: Stack, z_indices: Items, yx_indices: tuple = ()):
         self._base, self._z_indices = base, z_indices
-        self._yx_indices = yx_indices
+        self._yx_indices = (
+            ()
+            if all(
+                isinstance(item, slice) and item == slice(None)
+                for item in yx_indices
+            )
+            else yx_indices
+        )
 
         num_images = len(self._z_indices)
         if num_images == 0:
@@ -253,6 +300,8 @@ class View:
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def __getitem__(self, items: Items) -> npt.NDArray | View:
+        _reject_bool(items)
+
         if isinstance(items, int | np.integer):
             image = self._base[self._z_indices[items]]
             return image[self._yx_indices]
@@ -267,10 +316,14 @@ class View:
                     "Please index the original stack with the full crop, or "
                     "materialise the view first with np.asarray(view)."
                 )
+
+            for item in items:
+                _reject_bool(item)
+
             return self._base[(self._z_indices[items[0]],) + items[1:]]
 
         else:
-            raise TypeError
+            raise TypeError(f"Unsupported item type: {items}.")
 
     def asarray(self, dtype=None) -> npt.NDArray:
         """Return the view's data as a materialised NumPy array."""
@@ -288,6 +341,10 @@ class View:
 
     def __len__(self) -> int:
         return self.shape[0]
+
+    @property
+    def ndim(self):
+        return len(self.shape)
 
     @property
     def size(self):
@@ -319,21 +376,36 @@ class HISStack(Stack):
         self.width = int.from_bytes(header[4:6], byteorder="little")
         self.height = int.from_bytes(header[6:8], byteorder="little")
         self.file_type = int.from_bytes(header[12:14], byteorder="little")
-        num_images = int.from_bytes(header[14:18], byteorder="little")
+        num_images_from_header = int.from_bytes(
+            header[14:18], byteorder="little"
+        )
 
         self.image_nbytes = self.width * self.height * self.file_type
-        self.nbytes = self.image_nbytes * num_images
+        self.nbytes = self.image_nbytes * num_images_from_header
 
-        self.shape = (num_images, self.height, self.width)
+        self.shape = (num_images_from_header, self.height, self.width)
+
+        if self.file_type not in (1, 2):
+            raise ValueError(
+                f"Unrecognised data type: {self.file_type}. Must be 1 (uint8) "
+                f"or 2 (uint16)."
+            )
         self.dtype = (
             np.dtype(np.uint16) if self.file_type == 2 else np.dtype(np.uint8)
         )
 
         self.metadata = self._parse_metadata()
         self._image_offsets = self._calc_image_offsets()
-
-    def __del__(self):
-        self.close()
+        num_images_from_offsets = len(self._image_offsets)
+        if num_images_from_offsets != num_images_from_header:
+            warn(
+                f"HIS header indicated {num_images_from_header} images, but "
+                f"found {num_images_from_offsets}. Resizing to "
+                f"{num_images_from_offsets}.",
+                stacklevel=2,
+            )
+            self.shape = (num_images_from_offsets, self.height, self.width)
+            self.nbytes = self.image_nbytes * num_images_from_offsets
 
     def _parse_metadata(self) -> dict[str, dict[str, str]]:
         self._file.seek(64, 0)
@@ -367,25 +439,23 @@ class HISStack(Stack):
     def _calc_image_offsets(self) -> npt.NDArray[np.integer]:
         self._file.seek(64 + self.metadata_nbytes, 0)
 
-        image_offsets = np.empty(self.shape[0], dtype=np.int64)
-        image_offsets[0] = self._file.tell()
+        image_offsets = [self._file.tell()]
 
         self._file.seek(self.image_nbytes, 1)
 
-        for i in range(1, self.shape[0]):
+        for _ in range(1, self.shape[0]):
             header = self._file.read(64)
 
-            if not header:
+            if len(header) != 64:
                 break
 
             gap = int.from_bytes(header[2:4], byteorder="little")
 
-            image_offset = self._file.tell() + gap
-            image_offsets[i] = image_offset
+            image_offsets.append(self._file.tell() + gap)
 
             self._file.seek(self.image_nbytes + gap, 1)
 
-        return image_offsets
+        return np.asarray(image_offsets, dtype=np.int64)
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
         self._file.seek(self._image_offsets[index], 0)
@@ -397,7 +467,11 @@ class HISStack(Stack):
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        if np.all(np.diff(indices) == 1):
+        indices = np.asarray(indices)
+
+        # Only contiguous, non-negative indices are guaranteed to map to
+        #   increasing file offsets.
+        if np.all(indices >= 0) and np.all(np.diff(indices) == 1):
             offsets = self._image_offsets[indices]
             start = offsets[0]
             stop = offsets[-1]
@@ -420,12 +494,6 @@ class HISStack(Stack):
 
         return out
 
-    def close(self):
-        file_open = getattr(self, "_file", None)
-        if file_open:
-            self._file.close()
-            self._file = None
-
 
 class DCIMGStack(Stack):
     """
@@ -442,22 +510,13 @@ class DCIMGStack(Stack):
         self.image_nbytes = np.array(self._file[0]).nbytes
         self.nbytes = self.image_nbytes * self.shape[0]
 
-    def __del__(self):
-        self.close()
-
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        return np.asarray(self._file[index])
+        return np.array(self._file[index])
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
         return np.asarray(self._file[indices])
-
-    def close(self):
-        file_open = getattr(self, "_file", None)
-        if file_open:
-            self._file.close()
-            self._file = None
 
 
 class HDFStack(Stack):
@@ -470,8 +529,8 @@ class HDFStack(Stack):
     """
 
     def __init__(self, input_path: Path, dset_name: str):
-        self._in_hdf = h5py.File(input_path, "r")
-        self.images = self._in_hdf[dset_name]
+        self._file = h5py.File(input_path, "r")
+        self.images = self._file[dset_name]
 
         if self.images.ndim not in (2, 3):
             raise ValueError(
@@ -479,32 +538,35 @@ class HDFStack(Stack):
                 f"{self.images.shape[0]} {self.images.ndim}D stacks."
             )
 
-        self.shape = (
-            (1, *self.images.shape)
-            if self.images.ndim == 2
-            else self.images.shape
-        )
+        self._2d = self.images.ndim == 2
+        self.shape = (1, *self.images.shape) if self._2d else self.images.shape
 
         self.dtype = self.images.dtype
-        self.image_nbytes = np.array(self.images[0]).nbytes
+        self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
         self.nbytes = self.image_nbytes * self.shape[0]
 
-    def __del__(self):
-        self.close()
+    def _as_3d(self) -> npt.NDArray | h5py.Dataset:
+        if self._2d:
+            return np.asarray(self.images)[np.newaxis, :, :]
+
+        return self.images
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        return np.asarray(self.images[index])
+        images = self._as_3d()
+        return np.asarray(images[index])
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        return np.asarray(self.images[indices])
+        images = self._as_3d()
+        indices = np.asarray(indices)
 
-    def close(self):
-        in_hdf = getattr(self, "_in_hdf", None)
-        if in_hdf is not None:
-            self._in_hdf.close()
-            self._in_hdf = None
+        # h5py requires fancy indices to be non-negative and strictly
+        #   increasing.
+        if np.all(indices >= 0) and np.all(np.diff(indices) > 0):
+            return np.asarray(images[indices])
+
+        return np.stack([self._get_image(index) for index in indices])
 
 
 class TIFFStack(Stack):
@@ -538,7 +600,8 @@ class TIFFStack(Stack):
             warn(
                 "Passing multiple linked files has no effect -- the whole "
                 "series is opened from the first file regardless. Independent "
-                "files are ignored."
+                "files are ignored.",
+                stacklevel=2,
             )
             self.paths = self.paths[:1]
 
@@ -554,7 +617,8 @@ class TIFFStack(Stack):
             if series.is_pyramidal:
                 warn(
                     "Pyramidal series are partially supported. Taking maximum "
-                    "resolution only."
+                    "resolution only.",
+                    stacklevel=2,
                 )
 
             # Remove None data from missing pages.
@@ -668,15 +732,6 @@ class TIFFStack(Stack):
             )
             return images[np.newaxis, :, :] if images.ndim == 2 else images
 
-    def close(self):
-        file_open = getattr(self, "_file", None)
-        if file_open:
-            self._file.close()
-            self._file = None
-
-    def __del__(self):
-        self.close()
-
 
 def _detect_format(path: PathTypes) -> type[Stack]:
     # Single-file input.
@@ -686,16 +741,16 @@ def _detect_format(path: PathTypes) -> type[Stack]:
 
         if h5py.is_hdf5(path):
             return HDFStack
-        if ".dcimg" in name:
+        if name.endswith(".dcimg"):
             return DCIMGStack
-        if ".his" in name:
+        if name.endswith(".his"):
             return HISStack
 
         try:
             with TiffFile(path):
                 pass
-        except TiffFileError:
-            raise ValueError(f"Unsupported file type: '{name}'.")
+        except TiffFileError as exc:
+            raise ValueError(f"Unsupported file type: '{name}'.") from exc
 
         return TIFFStack
 
@@ -707,12 +762,12 @@ def _detect_format(path: PathTypes) -> type[Stack]:
             with TiffFile(p):
                 pass
 
-        except TiffFileError:
+        except TiffFileError as exc:
             raise ValueError(
                 f"Unsupported file type: '{p}'. List/array input must contain "
                 f"paths to 2D grayscale images contained in TIFF-family files "
                 f"readable by `tifffile`."
-            )
+            ) from exc
 
     return TIFFStack
 
