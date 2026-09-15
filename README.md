@@ -28,17 +28,7 @@ of 2D images) require the optional `zarr` package (`pip install zarr`).
 $ pip install lazystack
 ```
 
-For developers, you can clone the repository and run
-
-```console
-$ pip install -e .
-```
-
-or
-
-```console
-$ uv sync
-```
+Requires Python 3.10 or later.
 
 ## Usage
 
@@ -129,16 +119,42 @@ with lazystack("path/to/somedcimg.dcimg") as images:
 ## Contributing
 
 Contributions are very welcome! Don't hesitate to reach out if you have any 
-questions and feel free to open an issue if you have any feedback or encounter any bugs.
+questions, and feel free to open an issue if you have any feedback or encounter any bugs.
 
-Tests can be run via:
+To contribute, clone the repository and set up the development environment with
+`uv`, which installs the project along with its development dependencies
+(`pytest`, `ruff`, `zarr`):
+
+```console
+$ git clone https://github.com/domjurkschat/lazystack.git
+$ cd lazystack
+$ uv sync
+```
+
+Alternatively, install an editable copy with `pip`, then add the development
+tools separately:
+
+```console
+$ pip install -e .
+$ pip install pytest ruff zarr
+```
+
+Run the tests with:
 
 ```console
 $ uv run pytest
 ```
 
-**To-do list:**
-* Improve test suite.
+Linting and formatting are enforced by CI and can be run locally with:
+
+```console
+$ uv run ruff check
+$ uv run ruff format
+```
+
+## Roadmap
+
+* Expand test suite.
 * Nested spatial indexing.
 * Stacks of stacks.
 * Other file formats.
