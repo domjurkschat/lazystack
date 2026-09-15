@@ -2,7 +2,7 @@
 
 [![License](https://img.shields.io/github/license/domjurkschat/lazystack.svg?color=green)](https://github.com/domjurkschat/lazystack/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/lazystack.svg?color=green)](https://pypi.org/project/lazystack)
-[![Python Version](https://img.shields.io/pypi/pyversions/lazystack.svg?color=green)](https://python.org/downloads)
+[![Python Version](https://img.shields.io/pypi/pyversions/lazystack.svg?color=green&v=1)](https://python.org/downloads)
 [![Tests](https://github.com/domjurkschat/lazystack/actions/workflows/ci.yml/badge.svg)](https://github.com/domjurkschat/lazystack/actions/workflows/ci.yml)
 
 This package provides a familiar interface for lazily reading scientific image 
