@@ -20,7 +20,7 @@ of 2D images) require the optional `zarr` package (`pip install zarr`).
 ## Installation
 
 ```console
-$ pip install git+https://github.com/domjurkschat/lazystack
+$ pip install lazystack
 ```
 
 For developers, you can clone the repository and run
