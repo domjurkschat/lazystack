@@ -28,7 +28,12 @@ classifiers = [
   "Typing :: Typed",
 ]
 [dependency-groups]
-dev = ["pytest", "ruff", "zarr"]
+dev = [
+    "pytest",
+    "pytest-cov>=7.1.0",
+    "ruff",
+    "zarr",
+]
 
 [tool.ruff]
 line-length = 79
@@ -39,6 +44,19 @@ select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+
+[tool.coverage.run]
+source = ["lazystack"]
+branch = true
+relative_files = true
+
+[tool.coverage.report]
+exclude_also = [
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+]
+show_missing = true
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]
