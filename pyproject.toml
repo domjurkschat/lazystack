@@ -3,7 +3,8 @@ name = "lazystack"
 version = "0.5.0"
 description = "A lightweight, cross-platform unified interface for lazily reading scientific image stacks."
 readme = "README.md"
-license = {file = "LICENSE"}
+license = "BSD-3-Clause"
+license-files = ["LICENSE"]
 authors = [
     { name = "Dominic Jurkschat", email = "dom.jurkschat@monash.edu" }
 ]
@@ -15,7 +16,17 @@ dependencies = [
   "prefetch-generator",
 ]
 [dependency-groups]
-dev = ["pytest", "zarr"]
+dev = ["pytest", "ruff", "zarr"]
+
+[tool.ruff]
+line-length = 79
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
 
 [build-system]
 requires = ["uv_build>=0.11.19,<0.12.0"]

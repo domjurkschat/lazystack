@@ -121,9 +121,9 @@ def _make_config():
     header["xsize"][0] = 2048
     header["byte_depth"][0] = 2
     f_old._session_header = header
-    f_old._images = np.arange(
-        np.prod(f_old.shape), dtype=np.uint16
-    ).reshape(f_old.shape)
+    f_old._images = np.arange(np.prod(f_old.shape), dtype=np.uint16).reshape(
+        f_old.shape
+    )
     f_old._images.flags.writeable = False
     f_old.first_4px_correction_enabled = True
     f_old._format_version = FMT_OLD
@@ -143,9 +143,9 @@ def _make_config():
     file_header = np.zeros(1, dtype=FILE_HEADER_DTYPE)
     file_header["format_version"] = 0x1000000
     f_new._file_header = file_header
-    f_new._images = np.arange(
-        np.prod(f_new.shape), dtype=np.uint16
-    ).reshape(f_new.shape)
+    f_new._images = np.arange(np.prod(f_new.shape), dtype=np.uint16).reshape(
+        f_new.shape
+    )
     f_new._images.flags.writeable = False
     f_new.first_4px_correction_enabled = True
     f_new._format_version = FMT_NEW
