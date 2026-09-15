@@ -1,6 +1,6 @@
 [project]
 name = "lazystack"
-version = "0.5.0"
+version = "0.5.1"
 description = "A lightweight, cross-platform unified interface for lazily reading scientific image stacks."
 readme = "README.md"
 license = "BSD-3-Clause"
@@ -14,6 +14,18 @@ dependencies = [
   "h5py",
   "tifffile",
   "prefetch-generator",
+]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Intended Audience :: Science/Research",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Scientific/Engineering :: Image Processing",
+  "Typing :: Typed",
 ]
 [dependency-groups]
 dev = ["pytest", "ruff", "zarr"]
