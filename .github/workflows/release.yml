@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      actions: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify CI passed for this commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          sha=$(git rev-parse HEAD)
+          conclusion=$(gh run list --workflow ci.yml --commit "$sha" --limit 1 --json conclusion --jq '.[0].conclusion')
+          if [ "$conclusion" != "success" ]; then
+            echo "::error::CI for $sha concluded '$conclusion'"
+            exit 1
+          fi
+      - uses: astral-sh/setup-uv@v6
+        with:
+          enable-cache: true
+      - run: uv build
+      - run: uv publish
