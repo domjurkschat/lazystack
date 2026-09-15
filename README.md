@@ -1,4 +1,4 @@
-## lazystack
+# lazystack
 
 [![License](https://img.shields.io/github/license/domjurkschat/lazystack.svg?color=green)](https://github.com/domjurkschat/lazystack/raw/main/LICENSE)
 [![PyPI](https://img.shields.io/pypi/v/lazystack.svg?color=green)](https://pypi.org/project/lazystack)
