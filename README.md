@@ -4,6 +4,7 @@
 [![PyPI](https://img.shields.io/pypi/v/lazystack.svg?color=green)](https://pypi.org/project/lazystack)
 [![Python Version](https://img.shields.io/pypi/pyversions/lazystack.svg?color=green&v=1)](https://python.org/downloads)
 [![Tests](https://github.com/domjurkschat/lazystack/actions/workflows/ci.yml/badge.svg)](https://github.com/domjurkschat/lazystack/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/domjurkschat/lazystack/branch/main/graph/badge.svg)](https://codecov.io/gh/domjurkschat/lazystack)
 
 This package provides a familiar interface for lazily reading scientific image 
 stacks, particularly stacks of x-ray images. It's cross-platform, lightweight, 
