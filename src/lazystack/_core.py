@@ -109,7 +109,7 @@ class Stack:
 
 
 def iter_chunks(
-    object: npt.NDArray | View,
+    obj: npt.NDArray | View,
     chunk_size_gb: float = 5,
     num_prefetch: int = 1,
     axis: int = 0,
@@ -120,7 +120,7 @@ def iter_chunks(
     with prefetching.
 
     Args:
-        array: Array or view to be chunked.
+        obj: Array or view to be chunked.
         chunk_size_gb: Approximate chunk size allowance in GB.
         num_prefetch: Number of chunks to prefetch. Chunk size will be
             scaled accordingly so as not to exceed `chunk_size_gb`. This
@@ -136,10 +136,8 @@ def iter_chunks(
     """
     if step < 1:
         raise ValueError(f"`step` must be at least one, but got {step=}.")
-    if object.ndim != 3:
-        raise ValueError(
-            f"Only 3D arrays are supported, but got {object.shape=}"
-        )
+    if obj.ndim != 3:
+        raise ValueError(f"Only 3D arrays are supported, but got {obj.shape=}")
     if axis not in (0, 1, 2):
         raise ValueError(f"`axis` must be 0, 1, or 2, but got {axis}.")
     if num_prefetch < 1:
@@ -148,7 +146,7 @@ def iter_chunks(
         )
 
     # Calculate how much memory one item occupies along the batch axis.
-    image_nbytes = object.nbytes // object.shape[axis]
+    image_nbytes = obj.nbytes // obj.shape[axis]
 
     # Calculate how many items can fit into chunk allowance, ensuring this is
     #   never zero.
@@ -164,15 +162,15 @@ def iter_chunks(
 
     @prefetch(max_prefetch=num_prefetch)
     def _generator() -> Iterator[tuple[npt.NDArray, int, int]]:
-        for start in range(0, object.shape[axis], chunk_size):
-            stop = np.minimum(object.shape[axis], start + chunk_size)
+        for start in range(0, obj.shape[axis], chunk_size):
+            stop = np.minimum(obj.shape[axis], start + chunk_size)
             slices[axis] = slice(start, stop, step)
 
             indices = slices[axis] if axis == 0 else tuple(slices)
 
             # View is materialised by `np.asarray`.
             yield (
-                np.asarray(object[indices]),
+                np.asarray(obj[indices]),
                 start,
                 stop,
             )
@@ -201,7 +199,12 @@ def _to_indices(
             "Boolean mask must have the same length as base object."
         )
 
-    return np.nonzero(items)[0] if items.dtype == bool else items
+    items = np.nonzero(items)[0] if items.dtype == bool else items
+
+    if not np.issubdtype(items.dtype, np.integer):
+        raise TypeError("Only integer or boolean indexing is supported.")
+
+    return items
 
 
 def _reject_bool(items: Items):
@@ -212,13 +215,26 @@ def _reject_bool(items: Items):
         )
 
 
+def _reject_newaxis(items: Items):
+    if items is None:
+        raise NotImplementedError(
+            "None/newaxis indexing is not supported on lazystacks. "
+            "Materialise the stack first, e.g., stack.asarray()[None]."
+        )
+
+
+def _reject_shape_modifiers(items: Items):
+    _reject_bool(items)
+    _reject_newaxis(items)
+
+
 def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
     """
     Handles view creation and dispatch of ``Stack`` indexing. Integer indexing
     of the first axis returns a materialised 2D NumPy array. Otherwise, a lazy
     ``View`` is returned.
     """
-    _reject_bool(items)
+    _reject_shape_modifiers(items)
 
     if isinstance(items, int | np.integer):
         return base._get_image(items)
@@ -232,10 +248,11 @@ def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
         return View(base, indices)
 
     if isinstance(items, tuple):
+        for item in items:
+            _reject_shape_modifiers(item)
+
         z_items = items[0]
         yx_indices = items[1:]
-
-        _reject_bool(z_items)
 
         if isinstance(z_items, int | np.integer):
             return base._get_image(z_items)[yx_indices]
@@ -247,12 +264,12 @@ def _init_view(base: Stack, items: Items) -> npt.NDArray | View:
             z_indices = _to_indices(z_items, base.shape)
 
         else:
-            raise TypeError(f"Unsupported z-axis item type: {items}.")
+            raise TypeError(f"Unsupported z-axis item type: {z_items}.")
 
         return View(base, z_indices, yx_indices)
 
     else:
-        raise TypeError(f"Unsupported z-axis item type: {items}.")
+        raise TypeError(f"Unsupported item type: {items}.")
 
 
 class View:
@@ -300,16 +317,22 @@ class View:
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def __getitem__(self, items: Items) -> npt.NDArray | View:
-        _reject_bool(items)
+        _reject_shape_modifiers(items)
 
         if isinstance(items, int | np.integer):
             image = self._base[self._z_indices[items]]
             return image[self._yx_indices]
 
         elif isinstance(items, slice | list | np.ndarray):
+            if isinstance(items, list | np.ndarray):
+                items = _to_indices(items, self.shape)
+
             return View(self._base, self._z_indices[items], self._yx_indices)
 
         elif isinstance(items, tuple):
+            for item in items:
+                _reject_shape_modifiers(item)
+
             if self._yx_indices:
                 raise NotImplementedError(
                     "Nested spatial indexing is not currently supported. "
@@ -317,10 +340,18 @@ class View:
                     "materialise the view first with np.asarray(view)."
                 )
 
-            for item in items:
-                _reject_bool(item)
+            z_items = items[0]
+            yx_indices = items[1:]
 
-            return self._base[(self._z_indices[items[0]],) + items[1:]]
+            if isinstance(z_items, list | np.ndarray):
+                z_items = _to_indices(z_items, self.shape)
+
+            elif not isinstance(
+                z_items, int | np.integer | slice | EllipsisType
+            ):
+                raise TypeError(f"Unsupported z-axis item type: {z_items}.")
+
+            return self._base[(self._z_indices[z_items],) + yx_indices]
 
         else:
             raise TypeError(f"Unsupported item type: {items}.")
