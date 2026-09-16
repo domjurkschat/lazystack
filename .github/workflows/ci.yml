@@ -46,6 +46,9 @@ jobs:
           enable-cache: true
       - run: uv sync --locked --group dev
       - run: uv run pytest --cov=lazystack --cov-report=xml
+      - name: Enforce coverage floor (pull requests only)
+        if: github.event_name == 'pull_request'
+        run: uv run coverage report --fail-under=75
       - uses: codecov/codecov-action@v5
         with:
           token: ${{ secrets.CODECOV_TOKEN }}
