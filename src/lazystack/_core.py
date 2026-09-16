@@ -34,12 +34,29 @@ class Stack:
     slice, list, or tuple returns a lazy ``View``. Use within a ``with`` block
     or close explicitly with ``close()``.
 
-    Attributes:
+    Subclasses support a new file format by setting the required attributes
+    and overriding the two read methods below. Everything else -- lazy
+    slicing and indexing, ``asarray()``, and the context manager -- is
+    inherited and format-agnostic, and the module-level ``iter_chunks()``
+    works on any stack or view. See "Adding a format" in the README for a
+    worked example.
+
+    Required attributes:
         shape (tuple): Dimensions as (num_images, height, width).
-        ndim (int): Number of dimensions.
         dtype (npt.DTypeLike): Data type of each image.
         image_nbytes (int): Bytes of a single image.
         nbytes (int): Total bytes of the stack.
+
+    Required methods:
+        _get_image(index): Return one image as a 2D NumPy array.
+        _get_images(indices): Return a sequence of images as a 3D array.
+
+    Optional:
+        _file: An open handle. If set, ``close()`` closes it and clears the
+            attribute; the context manager calls ``close()`` on exit.
+
+    Attributes:
+        ndim (int): Number of dimensions.
         size (int): Number of elements in the stack.
         itemsize (int): Length of one element in bytes.
     """
@@ -765,6 +782,13 @@ class TIFFStack(Stack):
 
 
 def _detect_format(path: PathTypes) -> type[Stack]:
+    """
+    Return the ``Stack`` subclass that handles ``path``.
+
+    Add new formats here. Detection is ordered, so register a new extension
+    branch before the ``tifffile`` fallback at the end, otherwise the
+    fallback will claim the path.
+    """
     # Single-file input.
     if isinstance(path, str | Path):
         path = Path(path)
@@ -825,6 +849,9 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
 
     This function can and should be used within a context manager or closed
     explicitly after use.
+
+    To add support for a new format, subclass `Stack` and register the class
+    in `_detect_format`. See "Adding a format" in the README for details.
 
     Args:
         path: Path or list/array of paths to supported image files

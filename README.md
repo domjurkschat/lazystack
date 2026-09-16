@@ -22,6 +22,11 @@ memory when absolutely necessary.
 TIFF-family files that store the whole stack as a single 3D image (rather than a sequence
 of 2D images) require the optional `zarr` package (`pip install zarr`).
 
+Adding a format means writing a thin `Stack` subclass that exposes two read
+methods; the generic `View` then supplies lazy slicing, indexing, and
+materialisation, and the module-level `iter_chunks()` works on top of any
+stack or view. See [Adding a format](#adding-a-format).
+
 
 ## Installation
 
@@ -117,10 +122,98 @@ with lazystack("path/to/somedcimg.dcimg") as images:
         # Do some stuff.
 ```
 
+## Adding a format
+
+Every supported format is a `Stack` subclass that sets four attributes and
+overrides two methods. Lazy slicing, indexing, materialisation, and resource
+management are handled generically by `View` and the base class, so a new
+reader only needs to describe how images are read from disk.
+
+**The contract**
+
+| Member | Kind | Purpose |
+| --- | --- | --- |
+| `shape` | attribute | Dimensions as `(num_images, height, width)`. |
+| `dtype` | attribute | NumPy dtype of each image. |
+| `image_nbytes` | attribute | Bytes of a single image on disk. |
+| `nbytes` | attribute | Total bytes of the stack. |
+| `_get_image(index)` | method | Return one image as a 2D NumPy array. |
+| `_get_images(indices)` | method | Return a sequence of images as a 3D array. |
+| `_file` | optional attribute | Open handle; closed by `close()` and the context manager. |
+
+**Minimal example**
+
+```python
+import numpy as np
+from lazystack import Stack
+
+
+class MyStack(Stack):
+    """Lazy reader for the fictional .myformat container."""
+
+    def __init__(self, path):
+        # Kept as `_file` so `close()`/the context manager releases it.
+        self._file = open(path, "rb")
+        # shape is (num_images, height, width).
+        self.shape = self._read_header()
+        self.dtype = np.dtype(np.uint16)
+        self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+        self.nbytes = self.image_nbytes * self.shape[0]
+
+    def _get_image(self, index):
+        frame = self._read_frame(index)
+        return np.frombuffer(frame, self.dtype).reshape(self.shape[1:])
+
+    def _get_images(self, indices):
+        # Optimised multi-image retrieval preferred, otherwise something like:
+        return np.stack([self._get_image(i) for i in indices])
+
+
+# Opens the underlying file; the context manager closes `_file` on exit.
+with MyStack("path/to/file.myformat") as stack:
+    image = stack[0]
+```
+
+**What works out of the box**
+
+* `View`-backed slicing and spatial cropping (`stack[0:50]`,
+  `stack[:, 100:, 50:-50]`), so no image data is read until materialisation.
+* Integer, slice, list, array, and boolean-mask indexing.
+* `asarray()` / `np.asarray()` materialisation.
+* `iter_chunks()` (a module-level helper) for prefetched chunking along any
+  axis.
+* Context-manager support, and `close()` which closes `_file`.
+* `shape`, `dtype`, `ndim`, `size`, `itemsize`, `image_nbytes`, `nbytes`, and
+  `info`.
+
+**Register it**
+
+`_detect_format()` in `src/lazystack/_core.py` maps a path to a reader class.
+Add a branch that returns your class, placing it before the `tifffile`
+fallback at the end of the function (otherwise the fallback claims the path):
+
+```python
+if Path(path).name.lower().endswith(".myformat"):
+    return MyStack
+```
+
+If your reader needs constructor arguments (as `HDFStack` does for
+`dset_name`), extend `lazystack()` to pass them through. Readers can also be
+instantiated directly without touching `_detect_format`.
+
+**Test it**
+
+Add a writer and an `_open_stack` branch to `tests/conftest.py`, then include
+your format name in `FORMATS`. The parametrised suites in `tests/test_core.py`
+then exercise your reader against the shared indexing, attribute, and chunking
+tests automatically. This usually satisfies the CI coverage floor on its own.
+
 ## Contributing
 
-Contributions are very welcome! Don't hesitate to reach out if you have any 
+Contributions are very welcome! Don't hesitate to reach out if you have any
 questions, and feel free to open an issue if you have any feedback or encounter any bugs.
+
+If you're adding a new file format, see [Adding a format](#adding-a-format) for the reader contract and a minimal example.
 
 To contribute, clone the repository and set up the development environment with
 `uv`, which installs the project along with its development dependencies
@@ -146,6 +239,14 @@ Run the tests with:
 $ uv run pytest
 ```
 
+CI enforces a minimum of 75% overall test coverage on pull requests, and
+Codecov checks that new or changed lines are covered. Check coverage locally
+with:
+
+```console
+$ uv run pytest --cov=lazystack --cov-report=term-missing
+```
+
 Linting and formatting are enforced by CI and can be run locally with:
 
 ```console
@@ -155,10 +256,10 @@ $ uv run ruff format
 
 ## Roadmap
 
+* Other file formats -- see [Adding a format](#adding-a-format) to contribute a reader.
 * Expand test suite.
 * Nested spatial indexing.
 * Stacks of stacks.
-* Other file formats.
 * Colour/multichannel and hyperstack support.
 
 
