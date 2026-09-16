@@ -1,6 +1,6 @@
 [project]
 name = "lazystack"
-version = "0.6.0"
+version = "0.6.1"
 description = "A lightweight, cross-platform unified interface for lazily reading scientific image stacks."
 readme = "README.md"
 license = "BSD-3-Clause"
