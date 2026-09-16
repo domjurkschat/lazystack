@@ -19,14 +19,10 @@ memory when absolutely necessary.
 * Hamamatsu DCIMG (.dcimg).
 * Hamamatsu HIS (.his).
 
+Adding a format is designed to be straightforward. See [Adding a format](#adding-a-format).
+
 TIFF-family files that store the whole stack as a single 3D image (rather than a sequence
 of 2D images) require the optional `zarr` package (`pip install zarr`).
-
-Adding a format means writing a thin `Stack` subclass that exposes two read
-methods; the generic `View` then supplies lazy slicing, indexing, and
-materialisation, and the module-level `iter_chunks()` works on top of any
-stack or view. See [Adding a format](#adding-a-format).
-
 
 ## Installation
 
