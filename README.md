@@ -90,7 +90,7 @@ with lazystack(filenames) as images:
 Currently, this only supports TIFF files.
 
 lazystack also provides `iter_chunks` for prefetching and yielding 
-successive chunks along any axis of a lazystack (or regular 3D NumPy array), e.g.:
+successive chunks along any axis of a lazystack (or regular 3D NumPy-like array), e.g.:
 
 ```python
 from lazystack import lazystack, iter_chunks
