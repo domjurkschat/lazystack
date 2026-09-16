@@ -35,6 +35,16 @@ INDEX_EXPRS = [
     pytest.param((Ellipsis, slice(None), slice(None)), id="ellipsis"),
 ]
 
+NEWAXIS_EXPRS = [
+    None,
+    np.newaxis,
+    (None,),
+    (None, slice(None), slice(None)),
+    (Ellipsis, None),
+    (slice(None), None, slice(None)),
+    (0, None),
+]
+
 
 def test_iter_chunks_large_budget(example_3d_data):
     out = list(iter_chunks(example_3d_data, chunk_size_gb=1e9))
@@ -519,3 +529,120 @@ def test_is_multichannel(fake_page):
     assert _is_multichannel(fake_page(PHOTOMETRIC.MINISWHITE, 1)) is False
     assert _is_multichannel(fake_page(PHOTOMETRIC.RGB, 3)) is True
     assert _is_multichannel(fake_page(PHOTOMETRIC.MINISBLACK, 3)) is True
+
+
+def test_stack_copy_false(example_hdf_path):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(ValueError),
+    ):
+        np.array(stack, copy=False)
+
+
+def test_stack_asarray_dtype(example_hdf_path):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        array = stack.asarray(dtype=np.uint8)
+        assert array.dtype == np.uint8
+
+
+def test_view_copy_false(example_hdf_path):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(ValueError),
+    ):
+        np.array(stack[:, 1:, 2:], copy=False)
+
+
+def test_view_asarray_dtype(example_hdf_path):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        array = stack[:, 1:, 2:].asarray(dtype=np.uint8)
+        assert array.dtype == np.uint8
+
+
+def test_stack_str(example_hdf_path, example_3d_data):
+    data = example_3d_data.astype(np.uint16)
+    expected_image_nbytes_mb = 1e-6 * data[0].nbytes
+    expected_nbytes_mb = 1e-6 * data.nbytes
+
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        expected_str = (
+            f"{type(stack).__name__} object referencing {data.shape[0]} "
+            f"{data.dtype} images of shape {data.shape[1:]}. Each image "
+            f"occupies {expected_image_nbytes_mb:.2f} MB on disk, totalling "
+            f"{expected_nbytes_mb:.2f} MB."
+        )
+
+        assert str(stack) == expected_str
+        assert stack.info == expected_str
+
+
+@pytest.mark.parametrize("expr", NEWAXIS_EXPRS)
+def test_reject_newaxis_stack(example_hdf_path, expr):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(NotImplementedError),
+    ):
+        stack[expr]
+
+
+@pytest.mark.parametrize("expr", NEWAXIS_EXPRS)
+def test_reject_newaxis_view(example_hdf_path, expr):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(NotImplementedError),
+    ):
+        stack[:][expr]
+
+
+def test_reject_bool_in_spatial_position(example_hdf_path):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(TypeError),
+    ):
+        stack[:, True, :]
+
+
+@pytest.mark.parametrize("bad", [[None], [0.5], ["x"]])
+def test_reject_non_integer_index_array(example_hdf_path, bad):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        with pytest.raises(TypeError):
+            stack[bad]
+        with pytest.raises(TypeError):
+            stack[:][bad]
+
+
+def test_reject_view_bad_mask_length(example_hdf_path):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises(ValueError),
+    ):
+        stack[:][np.array([True, False])]
+
+
+@pytest.mark.parametrize("bad", ["x", 1.5])
+def test_reject_unsupported_index_type(example_hdf_path, bad):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        with pytest.raises(TypeError):
+            stack[bad]
+        with pytest.raises(TypeError):
+            stack[bad, :, :]
+        with pytest.raises(TypeError):
+            stack[:][bad]
+
+
+@pytest.mark.parametrize("bad", [1.5, "x", [0.5]])
+def test_reject_invalid_spatial_index(example_hdf_path, bad):
+    with (
+        lazystack(example_hdf_path, dset_name="images") as stack,
+        pytest.raises((IndexError, TypeError)),
+    ):
+        stack[:, bad, :]
+
+
+def test_ellipsis_stack_view_parity(example_hdf_path, example_3d_data):
+    data = example_3d_data.astype(np.uint16)
+
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        assert np.array_equal(np.asarray(stack[..., :, :]), data)
+        assert np.array_equal(np.asarray(stack[2:8][..., :, :]), data[2:8])
+        assert np.array_equal(np.asarray(stack[:, ..., :]), data)

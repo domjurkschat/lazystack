@@ -49,7 +49,7 @@ def example_3d_data():
 def _write_hdf(directory: Path, data: npt.NDArray) -> Path:
     path = directory / "example.h5"
     with h5py.File(path, "w") as tmp_hdf:
-        tmp_hdf.create_dataset(name="images", data=data)
+        tmp_hdf.create_dataset(name="images", data=data, dtype="uint16")
     return path
 
 
