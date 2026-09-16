@@ -48,8 +48,9 @@ class Stack:
         nbytes (int): Total bytes of the stack.
 
     Required methods:
-        _get_image(index): Return one image as a 2D NumPy array.
-        _get_images(indices): Return a sequence of images as a 3D array.
+        _get_image(index): Return one image as a materialised 2D NumPy array.
+        _get_images(indices): Return the requested images as a materialised
+            3D NumPy array, ordered as given.
 
     Optional:
         _file: An open handle. If set, ``close()`` closes it and clears the

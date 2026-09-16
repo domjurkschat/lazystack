@@ -133,9 +133,11 @@ reader only needs to describe how images are read from disk.
 | `dtype` | attribute | NumPy dtype of each image. |
 | `image_nbytes` | attribute | Bytes of a single image on disk. |
 | `nbytes` | attribute | Total bytes of the stack. |
-| `_get_image(index)` | method | Return one image as a 2D NumPy array. |
-| `_get_images(indices)` | method | Return a sequence of images as a 3D array. |
+| `_get_image(index)` | method | Return one image as a materialised 2D NumPy array. |
+| `_get_images(indices)` | method | Return the requested images as a materialised 3D NumPy array of shape `(len(indices), height, width)`. |
 | `_file` | optional attribute | Open handle; closed by `close()` and the context manager. |
+
+Both read methods return materialised NumPy arrays; a lazy `View` is not acceptable, since these are the hooks that actually read from disk. `indices` may be unordered, duplicated, or negative, and the returned images must follow the given order. If your backend can't do that directly — e.g. h5py requires non-negative, strictly increasing indices — fall back to per-image reads as `HDFStack` does.
 
 **Minimal example**
 
