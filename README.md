@@ -118,7 +118,53 @@ with lazystack("path/to/somedcimg.dcimg") as images:
         # Do some stuff.
 ```
 
-## Adding a format
+## Contributing
+
+Contributions are very welcome! Don't hesitate to reach out if you have any
+questions, and feel free to open an issue if you have any feedback or encounter any bugs.
+
+If you're adding a new file format, see [Adding a format](#adding-a-format) below for the reader contract and a minimal example.
+
+To contribute, clone the repository and set up the development environment with
+`uv`, which installs the project along with its development dependencies
+(`pytest`, `ruff`, `zarr`):
+
+```console
+$ git clone https://github.com/domjurkschat/lazystack.git
+$ cd lazystack
+$ uv sync
+```
+
+Alternatively, install an editable copy with `pip`, then add the development
+tools separately:
+
+```console
+$ pip install -e .
+$ pip install pytest ruff zarr
+```
+
+Run the tests with:
+
+```console
+$ uv run pytest
+```
+
+CI enforces a minimum of 75% overall test coverage on pull requests, and
+Codecov checks that new or changed lines are covered. Check coverage locally
+with:
+
+```console
+$ uv run pytest --cov=lazystack --cov-report=term-missing
+```
+
+Linting and formatting are enforced by CI and can be run locally with:
+
+```console
+$ uv run ruff check
+$ uv run ruff format
+```
+
+### Adding a format
 
 Every supported format is a `Stack` subclass that sets four attributes and
 overrides two methods. Lazy slicing, indexing, materialisation, and resource
@@ -204,53 +250,8 @@ instantiated directly without touching `_detect_format`.
 Add a writer and an `_open_stack` branch to `tests/conftest.py`, then include
 your format name in `FORMATS`. The parametrised suites in `tests/test_core.py`
 then exercise your reader against the shared indexing, attribute, and chunking
-tests automatically. This usually satisfies the CI coverage floor on its own.
-
-## Contributing
-
-Contributions are very welcome! Don't hesitate to reach out if you have any
-questions, and feel free to open an issue if you have any feedback or encounter any bugs.
-
-If you're adding a new file format, see [Adding a format](#adding-a-format) for the reader contract and a minimal example.
-
-To contribute, clone the repository and set up the development environment with
-`uv`, which installs the project along with its development dependencies
-(`pytest`, `ruff`, `zarr`):
-
-```console
-$ git clone https://github.com/domjurkschat/lazystack.git
-$ cd lazystack
-$ uv sync
-```
-
-Alternatively, install an editable copy with `pip`, then add the development
-tools separately:
-
-```console
-$ pip install -e .
-$ pip install pytest ruff zarr
-```
-
-Run the tests with:
-
-```console
-$ uv run pytest
-```
-
-CI enforces a minimum of 75% overall test coverage on pull requests, and
-Codecov checks that new or changed lines are covered. Check coverage locally
-with:
-
-```console
-$ uv run pytest --cov=lazystack --cov-report=term-missing
-```
-
-Linting and formatting are enforced by CI and can be run locally with:
-
-```console
-$ uv run ruff check
-$ uv run ruff format
-```
+tests automatically. This usually satisfies the CI coverage floor described
+above on its own.
 
 ## Roadmap
 
