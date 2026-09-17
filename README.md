@@ -66,7 +66,7 @@ NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
 `np.sum(stack)`, or arithmetic like `stack * 2` — convert the stack to a NumPy
 array first, reading all of its data into memory. This can be unexpected for
 large stacks, and is avoided by indexing or slicing the stack lazily instead
-(e.g. `stack[a:b, ...]` or `stack[[0, 50, 100]]`).
+(e.g., `stack[a:b, ...]` or `stack[[0, 50, 100]]`).
 
 It's best to open lazystacks within a context manager, but you can also open 
 and close them manually, e.g.:
