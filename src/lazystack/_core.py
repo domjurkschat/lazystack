@@ -18,7 +18,9 @@ from ._dcimg import DCIMGFile
 
 CPU_COUNT = cpu_count()
 
-Items: TypeAlias = int | slice | list | tuple | np.ndarray | np.integer
+Items: TypeAlias = (
+    int | slice | list | tuple | np.ndarray | np.integer | EllipsisType
+)
 PathTypes: TypeAlias = (
     str | Path | list[str] | list[Path] | npt.NDArray[str] | npt.NDArray[Path]
 )
@@ -870,6 +872,10 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
           underlying data on disk. For example, HDF files support lazy spatial
           slicing, but whole TIFF images must be materialised before spatial
           slicing can be applied.
+        - Laziness covers lazystack's own indexing and slicing and
+          ``iter_chunks()``. NumPy functions that accept array-likes (e.g.
+          ``np.take``, ``np.sum``) cast the stack to an array and read all of
+          its data.
 
     Examples:
         .. code-block:: python
