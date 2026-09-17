@@ -57,18 +57,18 @@ with lazystack("path/to/somehis.his") as images:
     subsubsubstack = np.asarray(subsubsubstack)
 ```
 
-**Laziness boundary.** Laziness applies to lazystack's own indexing and
+A lazystack exposes NumPy-like attributes: ``shape``, ``dtype``, ``ndim``, ``size`` (total
+elements), and ``itemsize`` (bytes per element). Disk usage is available via
+``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
+A one-line summary is available via ``str(stack)`` or ``stack.info``.
+
+Laziness applies to lazystack's own indexing and
 slicing (`stack[indices]`, `stack[a:b, ...]`) and to `iter_chunks()`.
 Converting a stack to a NumPy array materialises it — `np.asarray(stack)`,
 `.asarray()`, and NumPy functions that accept array-likes, such as
 `np.take(stack, ...)` or `np.sum(stack)`. For lazy frame selection, index the
 stack directly (e.g. `stack[[0, 50, 100]]`) instead of calling a NumPy
 function.
-
-A lazystack exposes NumPy-like attributes: ``shape``, ``dtype``, ``ndim``, ``size`` (total
-elements), and ``itemsize`` (bytes per element). Disk usage is available via
-``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
-A one-line summary is available via ``str(stack)`` or ``stack.info``.
 
 It's best to open lazystacks within a context manager, but you can also open 
 and close them manually, e.g.:
