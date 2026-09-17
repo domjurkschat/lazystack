@@ -62,13 +62,11 @@ elements), and ``itemsize`` (bytes per element). Disk usage is available via
 ``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
 A one-line summary is available via ``str(stack)`` or ``stack.info``.
 
-Laziness applies to lazystack's own indexing and
-slicing (`stack[indices]`, `stack[a:b, ...]`) and to `iter_chunks()`.
-Converting a stack to a NumPy array materialises it — `np.asarray(stack)`,
-`.asarray()`, and NumPy functions that accept array-likes, such as
-`np.take(stack, ...)` or `np.sum(stack)`. For lazy frame selection, index the
-stack directly (e.g. `stack[[0, 50, 100]]`) instead of calling a NumPy
-function.
+NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
+`np.sum(stack)`, or arithmetic like `stack * 2` — convert the stack to a NumPy
+array first, reading all of its data into memory. This can be unexpected for
+large stacks, and is avoided by indexing or slicing the stack lazily instead
+(e.g. `stack[a:b, ...]` or `stack[[0, 50, 100]]`).
 
 It's best to open lazystacks within a context manager, but you can also open 
 and close them manually, e.g.:

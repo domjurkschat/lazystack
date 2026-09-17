@@ -872,10 +872,9 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
           underlying data on disk. For example, HDF files support lazy spatial
           slicing, but whole TIFF images must be materialised before spatial
           slicing can be applied.
-        - Laziness covers lazystack's own indexing and slicing and
-          ``iter_chunks()``. NumPy functions that accept array-likes (e.g.
-          ``np.take``, ``np.sum``) cast the stack to an array and read all of
-          its data.
+        - Laziness covers lazystack's own indexing and slicing. NumPy
+          functions that accept array-likes (e.g. ``np.take``, ``np.sum``)
+          read the whole stack into memory.
 
     Examples:
         .. code-block:: python
