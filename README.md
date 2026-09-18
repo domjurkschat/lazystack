@@ -59,7 +59,7 @@ with lazystack("path/to/somehis.his") as images:
 
 A lazystack exposes NumPy-like attributes: ``shape``, ``dtype``, ``ndim``, ``size`` (total
 elements), and ``itemsize`` (bytes per element). Disk usage is available via
-``image_nbytes`` (bytes per frame) and ``nbytes`` (bytes for the whole stack).
+``image_nbytes`` (bytes per image) and ``nbytes`` (bytes for the whole stack).
 A one-line summary is available via ``str(stack)`` or ``stack.info``.
 
 NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
@@ -102,9 +102,9 @@ successive chunks along any axis of a lazystack (or regular 3D NumPy-like array)
 ```python
 from lazystack import lazystack, iter_chunks
 
-# How many chunks will be prefetched.
+# How many chunks will be prefetched (must be at least 1).
 num_prefetch = 1
-# Memory allowance for each chunk (in GB).
+# Memory allowance for all chunks (in GB), including prefetched chunks.
 chunk_size_gb = 1.0
 # Axis to chunk over (must be 0, 1, or 2).
 axis = 0
@@ -124,7 +124,7 @@ with lazystack("path/to/somedcimg.dcimg") as images:
         # Do some stuff.
 ```
 
-**Beyond reading.** Engine-level laziness and parallelism are intentionally
+Engine-level laziness and parallelism are intentionally
 left to consumers: use `iter_chunks()` to stream bounded-memory chunks through
 any function, or hand the stack to a chunked compute library such as dask for
 lazy arithmetic, reductions, or projections over a stack too large to load.
@@ -216,8 +216,8 @@ class MyStack(Stack):
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def _get_image(self, index):
-        frame = self._read_frame(index)
-        return np.frombuffer(frame, self.dtype).reshape(self.shape[1:])
+        image = self._read_image(index)
+        return np.frombuffer(image, self.dtype).reshape(self.shape[1:])
 
     def _get_images(self, indices):
         # Optimised multi-image retrieval preferred, otherwise something like:

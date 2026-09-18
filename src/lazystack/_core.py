@@ -136,16 +136,14 @@ def iter_chunks(
     step: int = 1,
 ) -> Iterator[tuple[npt.NDArray, int, int]]:
     """
-    Yield successive chunks along an axis of a 3D NumPy-like array (or View)
-    with prefetching.
+    Yield successive chunks along an axis of a 3D NumPy-like array
+    (or Stack/View) with prefetching.
 
     Args:
         obj: Array or view to be chunked.
         chunk_size_gb: Approximate chunk size allowance in GB.
         num_prefetch: Number of chunks to prefetch. Chunk size will be
-            scaled accordingly so as not to exceed `chunk_size_gb`. This
-            feature is experimental and may result in underutilisation of
-            the chunk size allowance.
+            scaled accordingly so as not to exceed `chunk_size_gb`.
         axis: Axis to chunk over.
         step: Spacing along the chunk axis.
 
