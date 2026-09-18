@@ -304,7 +304,7 @@ class DCIMGFile:
         try:
             self._parse_header()
             self._parse_footer()
-        except ValueError:
+        except (ValueError, TypeError):
             self.close()
             raise
 
@@ -404,6 +404,10 @@ class DCIMGFile:
 
     def close(self) -> None:
         self._memmap = None
+        self._images = None
+        self._first_4px = None
+        self._frame_stamps = None
+        self._time_stamps = None
 
     def _parse_header(self) -> None:
         self._file_header = np.ndarray((1,), FILE_HEADER_DTYPE, self._memmap)
@@ -628,18 +632,21 @@ class DCIMGFile:
     def _index_to_slice(index: int | slice | np.integer, size: int) -> slice:
         if isinstance(index, int | np.integer):
             index = int(index)
-            start, stop, step = index, index + 1, 1
-        elif isinstance(index, slice):
-            start, stop = index.start, index.stop
-            step = index.step if index.step is not None else 1
-        else:
+            if index < 0:
+                index += size
+            return slice(index, index + 1, 1)
+
+        if not isinstance(index, slice):
             raise TypeError(f"Invalid type: {type(index)}")
+
+        start, stop = index.start, index.stop
+        step = index.step if index.step is not None else 1
 
         if start is None:
             start = 0 if step > 0 else size
         elif start < 0:
             start += size
-            if stop is not None:
+            if stop is not None and stop < 0:
                 stop += size
         elif start > size:
             start = size
@@ -656,7 +663,8 @@ class DCIMGFile:
     @staticmethod
     def _len_index(index: slice | list | npt.NDArray[np.integer]) -> int:
         if isinstance(index, (list, np.ndarray)):
-            if isinstance(index, np.ndarray) and index.dtype == np.bool_:
+            index = np.asarray(index)
+            if index.dtype == np.bool_:
                 return int(np.count_nonzero(index))
             return len(index)
         return math.ceil((index.stop - index.start) / index.step)
