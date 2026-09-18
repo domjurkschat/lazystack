@@ -53,10 +53,14 @@ def _write_hdf(directory: Path, data: npt.NDArray) -> Path:
     return path
 
 
-def _his_bytes(data: npt.NDArray, file_type: int = 2) -> bytes:
+def _his_bytes(
+    data: npt.NDArray, file_type: int = 2, metadata: str = ""
+) -> bytes:
+    metadata_bytes = metadata.encode("utf-8")
+
     buffer = bytearray(64)
     # Number of metadata bytes.
-    buffer[2:4] = (2).to_bytes(2, "little")
+    buffer[2:4] = len(metadata_bytes).to_bytes(2, "little")
     # Width.
     buffer[4:6] = data.shape[2].to_bytes(2, "little")
     # Height.
@@ -66,8 +70,7 @@ def _his_bytes(data: npt.NDArray, file_type: int = 2) -> bytes:
     # Number of images.
     buffer[HIS_FRAME_COUNT] = data.shape[0].to_bytes(4, "little")
 
-    # Metadata placeholder.
-    buffer += bytearray(2)
+    buffer += metadata_bytes
 
     # Add the images with variable gaps. Header -> gap -> image -> repeat,
     #   except the first image.

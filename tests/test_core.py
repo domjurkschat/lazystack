@@ -486,6 +486,25 @@ def test_his_single(tmp_path, his_bytes, example_3d_data):
         assert np.array_equal(stack.asarray(), data)
 
 
+def test_his_parse_metadata(tmp_path, example_3d_data, his_bytes):
+    data = example_3d_data.astype(np.uint16)
+    metadata = (
+        '[Camera,exposure=10.5,binning="2x2",gain=1\n'
+        '[Stage,x=1.5,y=2.5,label="wide field"\n'
+        "[Acquisition,frame_count=10,broken,gain=2\x00\x00"
+    )
+
+    path = tmp_path / "metadata.his"
+    path.write_bytes(his_bytes(data, metadata=metadata))
+
+    with HISStack(path) as stack:
+        assert stack.metadata == {
+            "Camera": {"exposure": "10.5", "binning": '"2x2"', "gain": "1"},
+            "Stage": {"x": "1.5", "y": "2.5", "label": '"wide field"'},
+            "Acquisition": {"frame_count": "10", "gain": "2"},
+        }
+
+
 def test_his_uint8(tmp_path, example_3d_data, his_bytes):
     data = example_3d_data.astype(np.uint8)
 
