@@ -33,6 +33,10 @@ INDEX_EXPRS = [
         (slice(0, 5), slice(1, None), slice(2, None)), id="slice-spatial"
     ),
     pytest.param((Ellipsis, slice(None), slice(None)), id="ellipsis"),
+    pytest.param(
+        (np.array([0, 1]), slice(1, None), slice(2, None)),
+        id="array-z-spatial",
+    ),
 ]
 
 NEWAXIS_EXPRS = [
@@ -195,6 +199,9 @@ def test_indexing_mask(indexable):
     mask[::2] = True
 
     assert np.array_equal(np.asarray(object[mask]), np.asarray(expected[mask]))
+    assert np.array_equal(
+        np.asarray(object[mask, :, :]), np.asarray(expected[mask, :, :])
+    )
 
 
 def test_materialisation(indexable):
@@ -256,7 +263,7 @@ def test_dcimg_get_image_is_materialised(dcimg_stack):
     assert not np.shares_memory(image, fake.data)
 
 
-def test_reject_empty(example_hdf_path):
+def test_stack_reject_empty(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(ValueError),
@@ -264,14 +271,14 @@ def test_reject_empty(example_hdf_path):
         stack[5:5]
 
 
-def test_reject_nested_spatial_indexing(example_hdf_path):
+def test_view_reject_nested_spatial_indexing(example_hdf_path):
     with lazystack(example_hdf_path, dset_name="images") as stack:
         view = stack[:, 1:, 2:]
         with pytest.raises(NotImplementedError):
             view[:, 1:, 2:]
 
 
-def test_reject_bad_mask_length(example_hdf_path):
+def test_stack_reject_bad_mask_length(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(ValueError),
@@ -279,7 +286,7 @@ def test_reject_bad_mask_length(example_hdf_path):
         stack[np.array([True, False])]
 
 
-def test_reject_single_bool(example_hdf_path):
+def test_stack_reject_single_bool(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(TypeError),
@@ -287,7 +294,7 @@ def test_reject_single_bool(example_hdf_path):
         stack[True]
 
 
-def test_reject_multi_bool(example_hdf_path):
+def test_stack_reject_multi_bool(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(TypeError),
@@ -407,7 +414,7 @@ def test_tiff_reject_hyperstack(example_hyperstack_tiff_path):
         TIFFStack(example_hyperstack_tiff_path)
 
 
-def test_tiff_volumetric_reject_no_zarr(monkeypatch, _example_paths):
+def test_tiff_reject_volumetric_no_zarr(monkeypatch, _example_paths):
     monkeypatch.setitem(sys.modules, "zarr", None)
 
     with pytest.raises(ImportError):
@@ -559,6 +566,14 @@ def test_view_asarray_dtype(example_hdf_path):
         assert array.dtype == np.uint8
 
 
+@pytest.mark.parametrize("bad", ["x", 1.5])
+def test_view_reject_unsupported_index_type(example_hdf_path, bad):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        view = stack[0:2]
+        with pytest.raises(TypeError):
+            view[bad, :, :]
+
+
 def test_stack_str(example_hdf_path, example_3d_data):
     data = example_3d_data.astype(np.uint16)
     expected_image_nbytes_mb = 1e-6 * data[0].nbytes
@@ -577,7 +592,7 @@ def test_stack_str(example_hdf_path, example_3d_data):
 
 
 @pytest.mark.parametrize("expr", NEWAXIS_EXPRS)
-def test_reject_newaxis_stack(example_hdf_path, expr):
+def test_stack_reject_newaxis(example_hdf_path, expr):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(NotImplementedError),
@@ -586,7 +601,7 @@ def test_reject_newaxis_stack(example_hdf_path, expr):
 
 
 @pytest.mark.parametrize("expr", NEWAXIS_EXPRS)
-def test_reject_newaxis_view(example_hdf_path, expr):
+def test_view_reject_newaxis(example_hdf_path, expr):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(NotImplementedError),
@@ -594,7 +609,7 @@ def test_reject_newaxis_view(example_hdf_path, expr):
         stack[:][expr]
 
 
-def test_reject_bool_in_spatial_position(example_hdf_path):
+def test_stack_reject_bool_in_spatial_position(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(TypeError),
@@ -603,7 +618,7 @@ def test_reject_bool_in_spatial_position(example_hdf_path):
 
 
 @pytest.mark.parametrize("bad", [[None], [0.5], ["x"]])
-def test_reject_non_integer_index_array(example_hdf_path, bad):
+def test_stack_reject_non_integer_index_array(example_hdf_path, bad):
     with lazystack(example_hdf_path, dset_name="images") as stack:
         with pytest.raises(TypeError):
             stack[bad]
@@ -611,7 +626,7 @@ def test_reject_non_integer_index_array(example_hdf_path, bad):
             stack[:][bad]
 
 
-def test_reject_view_bad_mask_length(example_hdf_path):
+def test_view_reject_bad_mask_length(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises(ValueError),
@@ -620,7 +635,7 @@ def test_reject_view_bad_mask_length(example_hdf_path):
 
 
 @pytest.mark.parametrize("bad", ["x", 1.5])
-def test_reject_unsupported_index_type(example_hdf_path, bad):
+def test_stack_reject_unsupported_index_type(example_hdf_path, bad):
     with lazystack(example_hdf_path, dset_name="images") as stack:
         with pytest.raises(TypeError):
             stack[bad]
@@ -631,7 +646,7 @@ def test_reject_unsupported_index_type(example_hdf_path, bad):
 
 
 @pytest.mark.parametrize("bad", [1.5, "x", [0.5]])
-def test_reject_invalid_spatial_index(example_hdf_path, bad):
+def test_stack_reject_invalid_spatial_index(example_hdf_path, bad):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
         pytest.raises((IndexError, TypeError)),
