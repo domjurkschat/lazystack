@@ -267,6 +267,7 @@ above on its own.
 ## Roadmap
 
 * Other file formats -- see [Adding a format](#adding-a-format) to contribute a reader.
+* `.metadata` attribute for all formats.
 * Expand test suite.
 * Nested spatial indexing.
 * Stacks of stacks.
