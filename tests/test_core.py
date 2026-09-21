@@ -610,6 +610,23 @@ def test_stack_str(example_hdf_path, example_3d_data):
         assert stack.info == expected_str
 
 
+def test_view_str(example_hdf_path):
+    with lazystack(example_hdf_path, dset_name="images") as stack:
+        view = stack[2:8, 1:, 2:]
+
+        image_nbytes_mb = 1e-6 * view.image_nbytes
+        nbytes_mb = 1e-6 * view.nbytes
+        expected_str = (
+            f"View object referencing {view.shape[0]} {view.dtype} images of "
+            f"shape {view.shape[1:]}. Each image occupies "
+            f"{image_nbytes_mb:.2f} MB when materialised, totalling "
+            f"{nbytes_mb:.2f} MB."
+        )
+
+        assert str(view) == expected_str
+        assert view.info == expected_str
+
+
 @pytest.mark.parametrize("expr", NEWAXIS_EXPRS)
 def test_stack_reject_newaxis(example_hdf_path, expr):
     with (

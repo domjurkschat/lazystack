@@ -28,6 +28,18 @@ PathTypes: TypeAlias = (
 __all__ = ["Stack", "iter_chunks", "lazystack"]
 
 
+def _format_info(obj, where: str) -> str:
+    """Return a one-line summary of a stack or view."""
+    image_nbytes_mb = 1e-6 * obj.image_nbytes
+    nbytes_mb = 1e-6 * obj.nbytes
+    return (
+        f"{type(obj).__name__} object referencing {obj.shape[0]} "
+        f"{obj.dtype} images of shape {obj.shape[1:]}. Each image "
+        f"occupies {image_nbytes_mb:.2f} MB {where}, totalling "
+        f"{nbytes_mb:.2f} MB."
+    )
+
+
 class Stack:
     """
     Base class for lazy image stack readers.
@@ -59,6 +71,7 @@ class Stack:
             attribute; the context manager calls ``close()`` on exit.
 
     Attributes:
+        info (str): One-line summary of the stack (same as ``str(stack)``).
         ndim (int): Number of dimensions.
         size (int): Number of elements in the stack.
         itemsize (int): Length of one element in bytes.
@@ -81,14 +94,7 @@ class Stack:
         Return information about the current instance, including shape and disk
         usage of each image and the image stack.
         """
-        image_nbytes_mb = 1e-6 * self.image_nbytes
-        nbytes_mb = 1e-6 * self.nbytes
-        return (
-            f"{type(self).__name__} object referencing {self.shape[0]} "
-            f"{self.dtype} images of shape {self.shape[1:]}. Each image "
-            f"occupies {image_nbytes_mb:.2f} MB on disk, totalling "
-            f"{nbytes_mb:.2f} MB."
-        )
+        return _format_info(self, "on disk")
 
     def asarray(self, dtype=None) -> npt.NDArray:
         """Return the stack's data as a materialised NumPy array."""
@@ -121,7 +127,7 @@ class Stack:
 
     @property
     def size(self):
-        return np.prod(self.shape)
+        return int(np.prod(self.shape))
 
     @property
     def itemsize(self):
@@ -301,6 +307,7 @@ class View:
 
     Attributes:
         shape (tuple): Dimensions of the view (num_images, height, width).
+        info (str): One-line summary of the view (same as ``str(view)``).
         ndim (int): Number of dimensions.
         dtype (npt.DTypeLike): Data type of the underlying image data on disk.
         image_nbytes (int): Number of bytes of each image after spatial
@@ -391,13 +398,24 @@ class View:
     def __len__(self) -> int:
         return self.shape[0]
 
+    def __str__(self):
+        """
+        Return information about the current view, including shape and
+        materialised size of each image and the whole view.
+        """
+        return _format_info(self, "when materialised")
+
+    @property
+    def info(self):
+        return str(self)
+
     @property
     def ndim(self):
         return len(self.shape)
 
     @property
     def size(self):
-        return np.prod(self.shape)
+        return int(np.prod(self.shape))
 
     @property
     def itemsize(self):
@@ -412,8 +430,11 @@ class HISStack(Stack):
     of single images and single seek/read of contiguous image chunks. HIS
     files do not support lazy spatial slicing.
 
+    Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
+    ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
+    and the lazy indexing methods.
+
     Attributes:
-        file (BinaryIO): Open binary file handle.
         metadata (dict[str, dict[str, str]]): Metadata from the file header.
     """
 
@@ -421,26 +442,26 @@ class HISStack(Stack):
         self._file = path.open("rb")
 
         header = self._file.read(64)
-        self.metadata_nbytes = int.from_bytes(header[2:4], byteorder="little")
-        self.width = int.from_bytes(header[4:6], byteorder="little")
-        self.height = int.from_bytes(header[6:8], byteorder="little")
-        self.file_type = int.from_bytes(header[12:14], byteorder="little")
+        self._metadata_nbytes = int.from_bytes(header[2:4], byteorder="little")
+        self._width = int.from_bytes(header[4:6], byteorder="little")
+        self._height = int.from_bytes(header[6:8], byteorder="little")
+        self._file_type = int.from_bytes(header[12:14], byteorder="little")
         num_images_from_header = int.from_bytes(
             header[14:18], byteorder="little"
         )
 
-        self.image_nbytes = self.width * self.height * self.file_type
+        self.image_nbytes = self._width * self._height * self._file_type
         self.nbytes = self.image_nbytes * num_images_from_header
 
-        self.shape = (num_images_from_header, self.height, self.width)
+        self.shape = (num_images_from_header, self._height, self._width)
 
-        if self.file_type not in (1, 2):
+        if self._file_type not in (1, 2):
             raise ValueError(
-                f"Unrecognised data type: {self.file_type}. Must be 1 (uint8) "
+                f"Unrecognised data type: {self._file_type}. Must be 1 (uint8) "
                 f"or 2 (uint16)."
             )
         self.dtype = (
-            np.dtype(np.uint16) if self.file_type == 2 else np.dtype(np.uint8)
+            np.dtype(np.uint16) if self._file_type == 2 else np.dtype(np.uint8)
         )
 
         self.metadata = self._parse_metadata()
@@ -453,13 +474,13 @@ class HISStack(Stack):
                 f"{num_images_from_offsets}.",
                 stacklevel=2,
             )
-            self.shape = (num_images_from_offsets, self.height, self.width)
+            self.shape = (num_images_from_offsets, self._height, self._width)
             self.nbytes = self.image_nbytes * num_images_from_offsets
 
     def _parse_metadata(self) -> dict[str, dict[str, str]]:
         self._file.seek(64, 0)
 
-        metadata = self._file.read(self.metadata_nbytes)
+        metadata = self._file.read(self._metadata_nbytes)
         metadata = metadata.decode("utf-8", errors="ignore").rstrip("\x00")
         metadata = metadata.replace("[", "\n[")
 
@@ -486,7 +507,7 @@ class HISStack(Stack):
         return metadata_dict
 
     def _calc_image_offsets(self) -> npt.NDArray[np.integer]:
-        self._file.seek(64 + self.metadata_nbytes, 0)
+        self._file.seek(64 + self._metadata_nbytes, 0)
 
         image_offsets = [self._file.tell()]
 
@@ -510,7 +531,7 @@ class HISStack(Stack):
         self._file.seek(self._image_offsets[index], 0)
         image_bytes = self._file.read(self.image_nbytes)
         return np.frombuffer(image_bytes, dtype=self.dtype).reshape(
-            (self.height, self.width)
+            (self._height, self._width)
         )
 
     def _get_images(
@@ -528,14 +549,14 @@ class HISStack(Stack):
             buffer = self._file.read(stop - start + self.image_nbytes)
 
             out = np.empty(
-                (len(indices), self.height, self.width), dtype=self.dtype
+                (len(indices), self._height, self._width), dtype=self.dtype
             )
             for i, offset in enumerate(offsets):
                 image_bytes = buffer[
                     offset - start : offset - start + self.image_nbytes
                 ]
                 out[i] = np.frombuffer(image_bytes, dtype=self.dtype).reshape(
-                    self.height, self.width
+                    self._height, self._width
                 )
 
         else:
@@ -548,15 +569,16 @@ class DCIMGStack(Stack):
     """
     Lazy reader for Hamamatsu DCIMG files, wrapping ``DCIMGFile``.
 
-    Attributes:
-        dcimg_file (DCIMGFile): Underlying DCIMG reader.
+    Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
+    ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
+    and the lazy indexing methods.
     """
 
     def __init__(self, input_path: Path):
         self._file = DCIMGFile(input_path)
         self.shape = self._file.shape
         self.dtype = self._file.dtype
-        self.image_nbytes = np.array(self._file[0]).nbytes
+        self.image_nbytes = int(np.prod(self.shape[1:]) * self.dtype.itemsize)
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
@@ -573,32 +595,35 @@ class HDFStack(Stack):
     Lazy reader for HDF files, wrapping an ``h5py.Dataset``. Datasets are
     expected to be grayscale and interpreted as (num_images, height, width).
 
-    Attributes:
-        images (h5py.Dataset): Underlying dataset.
+    Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
+    ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
+    and the lazy indexing methods.
     """
 
     def __init__(self, input_path: Path, dset_name: str):
         self._file = h5py.File(input_path, "r")
-        self.images = self._file[dset_name]
+        self._images = self._file[dset_name]
 
-        if self.images.ndim not in (2, 3):
+        if self._images.ndim not in (2, 3):
             raise ValueError(
                 f"Only stacks of 2D arrays are supported. Got "
-                f"{self.images.shape[0]} {self.images.ndim}D stacks."
+                f"{self._images.shape[0]} {self._images.ndim}D stacks."
             )
 
-        self._2d = self.images.ndim == 2
-        self.shape = (1, *self.images.shape) if self._2d else self.images.shape
+        self._2d = self._images.ndim == 2
+        self.shape = (
+            (1, *self._images.shape) if self._2d else self._images.shape
+        )
 
-        self.dtype = self.images.dtype
-        self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+        self.dtype = self._images.dtype
+        self.image_nbytes = int(np.prod(self.shape[1:]) * self.dtype.itemsize)
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def _as_3d(self) -> npt.NDArray | h5py.Dataset:
         if self._2d:
-            return np.asarray(self.images)[np.newaxis, :, :]
+            return np.asarray(self._images)[np.newaxis, :, :]
 
-        return self.images
+        return self._images
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
         images = self._as_3d()
@@ -615,7 +640,7 @@ class HDFStack(Stack):
         if np.all(indices >= 0) and np.all(np.diff(indices) > 0):
             return np.asarray(images[indices])
 
-        return np.stack([self._get_image(index) for index in indices])
+        return np.stack([np.asarray(images[index]) for index in indices])
 
 
 class TIFFStack(Stack):
@@ -628,33 +653,32 @@ class TIFFStack(Stack):
     the whole stack as a single 3D image (rather than a sequence of 2D
     images) require the optional ``zarr`` package.
 
-    Attributes:
-        images: Frame source -- TIFF file paths (multi-file mode), lazy
-            ``TiffPage`` objects (paged mode), or a Zarr array (3D-volume
-            mode).
+    Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
+    ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
+    and the lazy indexing methods.
     """
 
     def __init__(self, image_paths: Path | list[Path] | npt.NDArray[Path]):
-        self.paths = np.atleast_1d(image_paths)
+        self._paths = np.atleast_1d(image_paths)
 
-        self._file = TiffFile(self.paths[0])
+        self._file = TiffFile(self._paths[0])
 
         if not self._file.series:
-            raise ValueError(f"No series found in {self.paths}.")
+            raise ValueError(f"No series found in {self._paths}.")
 
         series = self._file.series[0]
         page = series.pages[0]
 
-        if len(self.paths) > 1 and series.is_multifile:
+        if len(self._paths) > 1 and series.is_multifile:
             warn(
                 "Passing multiple linked files has no effect -- the whole "
                 "series is opened from the first file regardless. Independent "
                 "files are ignored.",
                 stacklevel=2,
             )
-            self.paths = self.paths[:1]
+            self._paths = self._paths[:1]
 
-        if len(self.paths) == 1:
+        if len(self._paths) == 1:
             if series.ndim not in (2, 3):
                 raise ValueError("Hyperstacks are not supported.")
 
@@ -671,7 +695,7 @@ class TIFFStack(Stack):
                 )
 
             # Remove None data from missing pages.
-            self.images = np.array(
+            self._images = np.array(
                 [page for page in series if page is not None]
             )
 
@@ -683,8 +707,8 @@ class TIFFStack(Stack):
 
                     # Take the first series and first pyramidal level only.
                     zarr_store = self._file.aszarr(series=0, level=0)
-                    self.images = zarr.open(zarr_store, mode="r")
-                    self.shape = self.images.shape
+                    self._images = zarr.open(zarr_store, mode="r")
+                    self.shape = self._images.shape
 
                 except ImportError as e:
                     raise ImportError(
@@ -699,10 +723,12 @@ class TIFFStack(Stack):
                 if series.ndim == 2:
                     self.shape = (1, *series.shape)
                 else:
-                    self.shape = (len(self.images), *series.shape[1:])
+                    self.shape = (len(self._images), *series.shape[1:])
 
             self.dtype = series.dtype
-            self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+            self.image_nbytes = int(
+                np.prod(self.shape[1:]) * self.dtype.itemsize
+            )
             self.nbytes = self.image_nbytes * self.shape[0]
 
         else:
@@ -713,7 +739,7 @@ class TIFFStack(Stack):
             self.shape = None
             self.dtype = None
 
-            for path in self.paths:
+            for path in self._paths:
                 with TiffFile(path) as path_file:
                     if not path_file.series:
                         raise ValueError(
@@ -737,7 +763,7 @@ class TIFFStack(Stack):
                     # Assign shape and dtype from first file -- all others must
                     #   match.
                     if self.shape is None:
-                        self.shape = (len(self.paths), *path_series.shape)
+                        self.shape = (len(self._paths), *path_series.shape)
                         self.dtype = path_series.dtype
 
                     if path_series.shape != self.shape[1:]:
@@ -749,36 +775,39 @@ class TIFFStack(Stack):
                             "All images must have the same data type."
                         )
 
-            self.image_nbytes = np.prod(self.shape[1:]) * self.dtype.itemsize
+            self.image_nbytes = int(
+                np.prod(self.shape[1:]) * self.dtype.itemsize
+            )
             self.nbytes = self.image_nbytes * self.shape[0]
-            self.images = self.paths
+            self._images = self._paths
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
         if self._mode == "zarr":
-            return self.images[index]
+            return self._images[index]
 
         if self._mode == "pages":
-            return self.images[index].asarray()
+            return self._images[index].asarray()
 
         if self._mode == "paths":
-            return imread(str(self.images[index]))
+            return imread(str(self._images[index]))
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
         if self._mode == "zarr":
-            return self.images[indices]
+            return self._images[indices]
 
         if self._mode == "pages":
             return np.stack(
-                [self.images[index].asarray() for index in indices]
+                [self._images[index].asarray() for index in indices]
             )
 
         if self._mode == "paths":
             images = imread(
-                [str(path) for path in self.images[indices]],
+                [str(path) for path in self._images[indices]],
                 ioworkers=CPU_COUNT // 2,
             )
+
             return images[np.newaxis, :, :] if images.ndim == 2 else images
 
 
