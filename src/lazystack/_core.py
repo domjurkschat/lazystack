@@ -333,12 +333,14 @@ class View:
         if num_images == 0:
             raise ValueError("View is empty!")
 
-        test_image = self._base._get_image(self._z_indices[0])
-        test_image = np.array(test_image[self._yx_indices])
-        self.shape = (num_images, *test_image.shape)
-
         self.dtype = self._base.dtype
-        self.image_nbytes = test_image.nbytes
+
+        dummy = np.broadcast_to(
+            np.empty(1, dtype=self.dtype), self._base.shape[1:]
+        )[self._yx_indices]
+
+        self.shape = (num_images, *dummy.shape)
+        self.image_nbytes = int(np.prod(self.shape[1:]) * self.dtype.itemsize)
         self.nbytes = self.image_nbytes * self.shape[0]
 
     def __getitem__(self, items: Items) -> npt.NDArray | View:
@@ -740,40 +742,48 @@ class TIFFStack(Stack):
             self.dtype = None
 
             for path in self._paths:
-                with TiffFile(path) as path_file:
-                    if not path_file.series:
-                        raise ValueError(
-                            f"No series found in {path}. Ensure all paths "
-                            f"specify valid TIFF files."
-                        )
+                try:
+                    with TiffFile(path) as path_file:
+                        if not path_file.series:
+                            raise ValueError(
+                                f"No series found in {path}. Ensure all paths "
+                                f"specify valid TIFF files."
+                            )
 
-                    path_series = path_file.series[0]
-                    if path_series.ndim != 2:
-                        raise ValueError(
-                            f"All paths must specify 2D images, but {path} is "
-                            f"{path_series.ndim}D."
-                        )
+                        path_series = path_file.series[0]
+                        if path_series.ndim != 2:
+                            raise ValueError(
+                                f"All paths must specify 2D images, but "
+                                f"{path} is {path_series.ndim}D."
+                            )
 
-                    path_page = path_series.pages[0]
-                    if _is_multichannel(path_page):
-                        raise ValueError(
-                            "Colour/multichannel images are not supported."
-                        )
+                        path_page = path_series.pages[0]
+                        if _is_multichannel(path_page):
+                            raise ValueError(
+                                "Colour/multichannel images are not supported."
+                            )
 
-                    # Assign shape and dtype from first file -- all others must
-                    #   match.
-                    if self.shape is None:
-                        self.shape = (len(self._paths), *path_series.shape)
-                        self.dtype = path_series.dtype
+                        # Assign shape and dtype from first file -- all others
+                        #   must match.
+                        if self.shape is None:
+                            self.shape = (len(self._paths), *path_series.shape)
+                            self.dtype = path_series.dtype
 
-                    if path_series.shape != self.shape[1:]:
-                        raise ValueError(
-                            "All images must have the same shape."
-                        )
-                    if path_series.dtype != self.dtype:
-                        raise ValueError(
-                            "All images must have the same data type."
-                        )
+                        if path_series.shape != self.shape[1:]:
+                            raise ValueError(
+                                "All images must have the same shape."
+                            )
+                        if path_series.dtype != self.dtype:
+                            raise ValueError(
+                                "All images must have the same data type."
+                            )
+
+                except TiffFileError as exc:
+                    raise ValueError(
+                        f"Unsupported file type: '{path}'. List/array input "
+                        f"must contain paths to 2D grayscale images contained "
+                        f"in TIFF-family files readable by `tifffile`."
+                    ) from exc
 
             self.image_nbytes = int(
                 np.prod(self.shape[1:]) * self.dtype.itemsize
@@ -798,9 +808,12 @@ class TIFFStack(Stack):
             return self._images[indices]
 
         if self._mode == "pages":
-            return np.stack(
-                [self._images[index].asarray() for index in indices]
-            )
+            out = np.empty((len(indices), *self.shape[1:]), dtype=self.dtype)
+
+            for i, index in enumerate(indices):
+                out[i] = self._images[index].asarray()
+
+            return out
 
         if self._mode == "paths":
             images = imread(
@@ -841,18 +854,6 @@ def _detect_format(path: PathTypes) -> type[Stack]:
 
     if len(path) == 0:
         raise ValueError("Received an empty list or array.")
-
-    for p in path:
-        try:
-            with TiffFile(p):
-                pass
-
-        except TiffFileError as exc:
-            raise ValueError(
-                f"Unsupported file type: '{p}'. List/array input must contain "
-                f"paths to 2D grayscale images contained in TIFF-family files "
-                f"readable by `tifffile`."
-            ) from exc
 
     return TIFFStack
 

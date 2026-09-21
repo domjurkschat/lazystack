@@ -318,6 +318,7 @@ def test_lazystack_dispatch(
     assert _detect_format("tmp.dcimg") is DCIMGStack
     assert _detect_format("tmp.his") is HISStack
     assert _detect_format(_example_paths["paged"]) is TIFFStack
+    assert _detect_format(_example_paths["multi_file"]) is TIFFStack
     assert _detect_format(example_good_tiff_bad_path) is TIFFStack
 
 
@@ -345,8 +346,10 @@ def test_dispatch_reject_unsupported_mix(
         (_example_paths["multi_file"], [example_unsupported_tiff_path])
     )
 
+    assert _detect_format(paths) is TIFFStack
+
     with pytest.raises(ValueError):
-        _detect_format(paths)
+        lazystack(paths)
 
 
 def test_lazystack_reject_no_hdf_dset_name(example_hdf_path):
