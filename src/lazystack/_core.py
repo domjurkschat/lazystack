@@ -908,19 +908,22 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
         .. code-block:: python
             from lazystack import lazystack
             # Initialise reader (no images in memory).
-            with lazystack("path/to/file") as images:
-                # Access familiar NDArray attributes, e.g., shape, dtype, size.
-                shape = images.shape
+            with lazystack("path/to/file") as stack:
+                # Access familiar NumPy array attributes.
+                shape = stack.shape
+                nbytes = stack.nbytes
+
                 # Slicing the lazystack produces a view (no images in memory).
-                substack = images[0:50]
-                # Slicing a view or lazystack also produces a view.
-                subsubstack = substack[0:10]
-                # Spatial slicing also produces a view.
-                subsubsubstack = subsubstack[:, 100:, 50:-50]
-                # Integer indexing materialises an image.
-                image = subsubsubstack[5]
-                # `np.asarray()` materialises the whole view.
-                subsubsubstack = np.asarray(subsubsubstack)
+                view = stack[0:50]
+
+                # Slicing a view also produces a view.
+                another_view = view[0:10, [0, 5, 25], ::-1]
+
+                # Integer indexing materialises an image from the view.
+                image = another_view[7]
+
+                # `.asarray()` materialises all the images.
+                images = another_view.asarray()
     """
     stack_class = _detect_format(path)
     if stack_class is HDFStack:
