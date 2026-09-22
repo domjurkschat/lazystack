@@ -3,7 +3,7 @@ import sys
 import h5py
 import numpy as np
 import pytest
-from tifffile import PHOTOMETRIC, TiffWriter, imwrite
+from tifffile import PHOTOMETRIC, TiffFile, TiffWriter, imwrite
 
 from lazystack._core import (
     DCIMGStack,
@@ -330,12 +330,12 @@ def example_unsupported_tiff_path(tmp_path):
 
 
 def test_dispatch_reject_unsupported_type(example_unsupported_tiff_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsupported file type"):
         _detect_format(example_unsupported_tiff_path)
 
 
 def test_dispatch_reject_empty_list():
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="empty list"):
         _detect_format([])
 
 
@@ -348,12 +348,12 @@ def test_dispatch_reject_unsupported_mix(
 
     assert _detect_format(paths) is TIFFStack
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Unsupported file type"):
         lazystack(paths)
 
 
 def test_lazystack_reject_no_hdf_dset_name(example_hdf_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="dset_name"):
         lazystack(example_hdf_path)
 
 
@@ -375,7 +375,7 @@ def example_rgb_tiff_path(tmp_path, example_3d_data):
 
 
 def test_tiff_reject_rgb(example_rgb_tiff_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Colour/multichannel"):
         TIFFStack(example_rgb_tiff_path)
 
 
@@ -413,14 +413,14 @@ def example_hyperstack_tiff_path(tmp_path, example_3d_data):
 
 
 def test_tiff_reject_hyperstack(example_hyperstack_tiff_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="Hyperstacks"):
         TIFFStack(example_hyperstack_tiff_path)
 
 
 def test_tiff_reject_volumetric_no_zarr(monkeypatch, _example_paths):
     monkeypatch.setitem(sys.modules, "zarr", None)
 
-    with pytest.raises(ImportError):
+    with pytest.raises(ImportError, match="install Zarr"):
         TIFFStack(_example_paths["volumetric"])
 
 
@@ -445,12 +445,12 @@ def example_3d_tiff_paths(tmp_path, example_3d_data):
 
 
 def test_tiff_reject_3d_paths(example_3d_tiff_paths):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="2D images"):
         TIFFStack(example_3d_tiff_paths)
 
 
 def test_tiff_reject_multi_rgb(example_rgb_tiff_path):
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="2D images"):
         TIFFStack(np.repeat(example_rgb_tiff_path, 2))
 
 
@@ -461,7 +461,7 @@ def test_tiff_reject_multi_mixed_shape(tmp_path):
     imwrite(path1, np.zeros((2, 2), dtype=np.uint16))
     imwrite(path2, np.zeros((3, 3), dtype=np.uint16))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="same shape"):
         TIFFStack([path1, path2])
 
 
@@ -472,8 +472,93 @@ def test_tiff_reject_multi_mixed_dtype(tmp_path):
     imwrite(path1, np.zeros((2, 2), dtype=np.uint16))
     imwrite(path2, np.zeros((2, 2), dtype=np.uint32))
 
-    with pytest.raises(ValueError):
+    with pytest.raises(ValueError, match="same data type"):
         TIFFStack([path1, path2])
+
+
+@pytest.fixture
+def example_tiff_no_series(tmp_path):
+    output_path = tmp_path / "tmp.tif"
+    output_path.write_bytes(b"II*\x00\x00\x00\x00\x00")
+    return output_path
+
+
+def test_tiff_reject_no_series(example_tiff_no_series, _example_paths):
+    with pytest.raises(ValueError, match="No series found"):
+        lazystack(example_tiff_no_series)
+
+    paths = [_example_paths["multi_file"][0], example_tiff_no_series]
+
+    with pytest.raises(ValueError, match="No series found"):
+        lazystack(paths)
+
+
+def test_tiff_warns_multi_series(_example_paths, monkeypatch):
+    original = TiffFile.series
+
+    def multifile_series(self):
+        series = original.func(self)
+        for s in series:
+            s.is_multifile = True
+        return series
+
+    monkeypatch.setattr(TiffFile, "series", property(multifile_series))
+
+    paths = [_example_paths["paged"], _example_paths["paged"]]
+    with (
+        pytest.warns(UserWarning, match="linked files"),
+        TIFFStack(paths) as stack,
+        TIFFStack(paths[0]) as expected_stack,
+    ):
+        assert np.array_equal(stack.asarray(), expected_stack.asarray())
+
+
+@pytest.fixture
+def example_tiff_palette_path(tmp_path, example_3d_data):
+    output_path = tmp_path / "tmp.tif"
+
+    data = example_3d_data[0].astype(np.uint8)
+    cmap = np.zeros((3, 256), dtype=np.uint16)
+
+    with TiffWriter(output_path) as writer:
+        writer.write(data, photometric="palette", colormap=cmap)
+
+    return output_path
+
+
+def test_tiff_reject_palette(example_tiff_palette_path):
+    with pytest.raises(ValueError, match="Colour/multichannel stacks"):
+        lazystack(example_tiff_palette_path)
+
+    with pytest.raises(ValueError, match="Colour/multichannel images"):
+        lazystack([example_tiff_palette_path, example_tiff_palette_path])
+
+
+def test_tiff_warn_pyramidal(tmp_path):
+    output_path = tmp_path / "tmp.ome.tif"
+
+    level0 = np.arange(2 * 4 * 4, dtype=np.uint16).reshape(2, 4, 4)
+    level1 = level0[:, ::2, ::2]
+
+    with TiffWriter(output_path, ome=True) as writer:
+        writer.write(
+            level0,
+            subifds=1,
+            photometric="minisblack",
+            metadata={"axes": "ZYX"},
+        )
+        writer.write(
+            level1,
+            subfiletype=1,
+            photometric="minisblack",
+            metadata={"axes": "ZYX"},
+        )
+
+    with (
+        pytest.warns(UserWarning, match="Pyramidal"),
+        lazystack(output_path) as stack,
+    ):
+        assert np.array_equal(stack.asarray(), level0)
 
 
 def test_his_single(tmp_path, his_bytes, example_3d_data):
@@ -563,7 +648,7 @@ def test_is_multichannel(fake_page):
 def test_stack_copy_false(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
-        pytest.raises(ValueError),
+        pytest.raises(ValueError, match="copy=False"),
     ):
         np.array(stack, copy=False)
 
@@ -577,7 +662,7 @@ def test_stack_asarray_dtype(example_hdf_path):
 def test_view_copy_false(example_hdf_path):
     with (
         lazystack(example_hdf_path, dset_name="images") as stack,
-        pytest.raises(ValueError),
+        pytest.raises(ValueError, match="copy=False"),
     ):
         np.array(stack[:, 1:, 2:], copy=False)
 
@@ -700,3 +785,14 @@ def test_ellipsis_stack_view_parity(example_hdf_path, example_3d_data):
         assert np.array_equal(np.asarray(stack[..., :, :]), data)
         assert np.array_equal(np.asarray(stack[2:8][..., :, :]), data[2:8])
         assert np.array_equal(np.asarray(stack[:, ..., :]), data)
+
+
+def test_hdf_reject_bad_ndim(tmp_path, example_3d_data):
+    bad_data = example_3d_data[np.newaxis, ...]
+
+    output_path = tmp_path / "tmp.h5"
+    with h5py.File(output_path, "w") as tmp_hdf:
+        tmp_hdf.create_dataset(name="images", data=bad_data, dtype="uint16")
+
+    with pytest.raises(ValueError, match="Only stacks of 2D arrays"):
+        lazystack(output_path, "images")
