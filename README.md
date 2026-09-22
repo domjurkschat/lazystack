@@ -50,8 +50,7 @@ A simple example:
 from lazystack import lazystack
 
 with lazystack("path/to/supported_file.something") as stack:
-    # Access familiar NumPy array attributes, e.g., shape, dtype,
-    #     and size.
+    # Access familiar NumPy array attributes.
     shape = stack.shape
     nbytes = stack.nbytes
 
@@ -67,6 +66,8 @@ with lazystack("path/to/supported_file.something") as stack:
     # `.asarray()` materialises all the images.
     images = another_view.asarray()
 ```
+
+Note that nested spatial indexing of views is currently not supported.
 
 NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
 `np.sum(stack)`, or arithmetic like `stack * 2` — convert the stack to a NumPy
