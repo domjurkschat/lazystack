@@ -37,30 +37,36 @@ Requires Python 3.10 or later.
 Lazy stacks can be created by passing a path or a list/array of paths to the 
 `lazystack` function. The underlying data is only materialised via integer 
 indexing or upon being cast to a NumPy array, e.g., via `np.asarray()` or 
-`.asarray()`. For example:
-
-```python
-from lazystack import lazystack
-
-with lazystack("path/to/somehis.his") as images:
-    # Access familiar NDArray attributes, e.g., shape, dtype, size.
-    shape = images.shape
-    # Slicing the lazystack produces a view (no images in memory).
-    substack = images[0:50]
-    # Slicing a view or lazystack also produces a view.
-    subsubstack = substack[0:10]
-    # Spatial slicing also produces a view.
-    subsubsubstack = subsubstack[:, 100:, 50:-50]
-    # Integer indexing materialises an image from the view.
-    image = subsubsubstack[5]
-    # `np.asarray()` materialises the whole view.
-    subsubsubstack = np.asarray(subsubsubstack)
-```
+`.asarray()`. 
 
 A lazystack exposes NumPy-like attributes: ``shape``, ``dtype``, ``ndim``, ``size`` (total
 elements), and ``itemsize`` (bytes per element). Disk usage is available via
 ``image_nbytes`` (bytes per image) and ``nbytes`` (bytes for the whole stack).
 A one-line summary is available via ``str(stack)`` or ``stack.info``.
+
+A simple example:
+
+```python
+from lazystack import lazystack
+
+with lazystack("path/to/supported_file.something") as stack:
+    # Access familiar NumPy array attributes, e.g., shape, dtype,
+    #     and size.
+    shape = stack.shape
+    nbytes = stack.nbytes
+
+    # Slicing the lazystack produces a view (no images in memory).
+    view = stack[0:50]
+
+    # Slicing a view also produces a view.
+    another_view = view[0:10, [0, 5, 25], ::-1]
+
+    # Integer indexing materialises an image from the view.
+    image = another_view[7]
+
+    # `.asarray()` materialises all the images.
+    images = another_view.asarray()
+```
 
 NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
 `np.sum(stack)`, or arithmetic like `stack * 2` — convert the stack to a NumPy
