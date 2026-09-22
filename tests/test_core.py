@@ -3,7 +3,12 @@ import sys
 import h5py
 import numpy as np
 import pytest
-from tifffile import PHOTOMETRIC, TiffFile, TiffWriter, imwrite
+from tifffile import (
+    PHOTOMETRIC,
+    TiffPageSeries,
+    TiffWriter,
+    imwrite,
+)
 
 from lazystack._core import (
     DCIMGStack,
@@ -404,10 +409,10 @@ def test_tiff_miniswhite(example_tiff_miniswhite_path, example_3d_data):
 @pytest.fixture
 def example_hyperstack_tiff_path(tmp_path, example_3d_data):
     output_path = tmp_path / "tmp.tif"
-    data = example_3d_data.astype(np.uint16)[np.newaxis, :, :, :]
+    data = np.stack([example_3d_data, example_3d_data]).astype(np.uint16)
 
     with TiffWriter(output_path) as writer:
-        writer.write(data, metadata={"axes": "TZYX"})
+        writer.write(data, photometric="minisblack", metadata={"axes": "TZYX"})
 
     return output_path
 
@@ -494,15 +499,13 @@ def test_tiff_reject_no_series(example_tiff_no_series, _example_paths):
 
 
 def test_tiff_warns_multi_series(_example_paths, monkeypatch):
-    original = TiffFile.series
+    original_init = TiffPageSeries.__init__
 
-    def multifile_series(self):
-        series = original.func(self)
-        for s in series:
-            s.is_multifile = True
-        return series
+    def multifile_init(self, *args, **kwargs):
+        original_init(self, *args, **kwargs)
+        self.is_multifile = True
 
-    monkeypatch.setattr(TiffFile, "series", property(multifile_series))
+    monkeypatch.setattr(TiffPageSeries, "__init__", multifile_init)
 
     paths = [_example_paths["paged"], _example_paths["paged"]]
     with (
