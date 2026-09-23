@@ -273,10 +273,9 @@ above on its own.
 
 ## Roadmap
 
-* Other file formats -- see [Adding a format](#adding-a-format) to contribute a reader.
+* Other file formats (ongoing) -- see [Adding a format](#adding-a-format) to contribute a reader.
 * Nested spatial indexing.
 * `.metadata` attribute for all formats.
-* Harden test suite.
 * Stacks of stacks.
 * Colour/multichannel and hyperstack support.
 
