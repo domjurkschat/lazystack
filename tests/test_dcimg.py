@@ -92,6 +92,7 @@ TEST_VECTORS = [
     np.index_exp[:, 0:0:1, :],
     np.index_exp[..., 0:0:1],
     np.index_exp[[0, 2, 5]],
+    np.index_exp[[0], 0, 0],
     np.index_exp[np.array([0, 2, 5])],
     np.index_exp[np.array([9, 8, 7])],
     np.index_exp[[0, 2, 5], 0:4, 0:4],
@@ -102,6 +103,13 @@ TEST_VECTORS = [
     ],
     np.index_exp[np.uint16(1), np.uint32(10), np.int64(5) :],
     np.index_exp[0, 0, -2046:8],
+    np.index_exp[12:5:-1],
+    np.index_exp[:, :0:-1, :],
+    np.index_exp[:, 3::-1, :],
+    np.index_exp[:, :, 3::-1],
+    np.index_exp[:, :, 2:0:-1],
+    np.index_exp[:, :, 0:2:5],
+    np.index_exp[:, :, 2038:2:-1],
     np.index_exp[:, :, :-1],
     np.index_exp[Ellipsis, slice(None)],
     [True, False, True, False, True, False, True, False, True, False],
@@ -203,6 +211,7 @@ def test_getitem(config, value):
             (slice(None), np.array([0, 1]), slice(None)), id="fancy-on-y"
         ),
         pytest.param(np.array([[0, 1], [2, 3]]), id="fancy-2d"),
+        pytest.param(range(3), id="range"),
     ],
 )
 def test_getitem_rejects(config, expr):
@@ -268,6 +277,7 @@ def _dcimg_bytes(
     version=0x1000000,
     frame_footer_size=0,
     first_4px=None,
+    four_px_offset_in_frame=0,
     y0=0,
     crop=(0, 0),
     bytes_per_row=None,
@@ -351,7 +361,7 @@ def _dcimg_bytes(
             offset=footer_offset + footer_size,
         )
         session_footer2["offset_to_4px"] = offset_to_4px
-        session_footer2["4px_offset_in_frame"] = 0
+        session_footer2["4px_offset_in_frame"] = four_px_offset_in_frame
         session_footer2["4px_size"] = 8
 
         if first_4px is not None:
@@ -507,6 +517,38 @@ def test_dcimg_old_4px(tmp_path, dcimg_bytes, example_3d_data):
         assert np.array_equal(reader[...], expected)
         assert np.array_equal(reader[3], expected[3])
         assert np.array_equal(reader[:, 0, 0:4], expected[:, 0, 0:4])
+
+    finally:
+        reader.close()
+
+
+def test_dcimg_old_4px_offset_line(tmp_path, dcimg_bytes, example_3d_data):
+    data = example_3d_data.astype(np.uint16)
+    num_frames, _, width = data.shape
+    first_4px = (
+        (65000 - np.arange(num_frames * 4))
+        .reshape(num_frames, 4)
+        .astype(np.uint16)
+    )
+    offset_line = 2
+    path = tmp_path / "old4px_line.dcimg"
+    path.write_bytes(
+        dcimg_bytes(
+            data,
+            first_4px=first_4px,
+            four_px_offset_in_frame=offset_line * width * 2,
+        )
+    )
+
+    expected = np.copy(data)
+    expected[:, offset_line, 0:4] = first_4px
+
+    reader = DCIMGFile(path)
+
+    try:
+        assert reader._target_line == offset_line
+        assert np.array_equal(reader[...], expected)
+        assert np.array_equal(reader[:, 1:3, :], expected[:, 1:3, :])
 
     finally:
         reader.close()

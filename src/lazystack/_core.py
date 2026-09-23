@@ -798,8 +798,7 @@ class TIFFStack(Stack):
         if self._mode == "pages":
             return self._images[index].asarray()
 
-        if self._mode == "paths":
-            return imread(str(self._images[index]))
+        return imread(str(self._images[index]))
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
@@ -815,13 +814,12 @@ class TIFFStack(Stack):
 
             return out
 
-        if self._mode == "paths":
-            images = imread(
-                [str(path) for path in self._images[indices]],
-                ioworkers=CPU_COUNT // 2,
-            )
+        images = imread(
+            [str(path) for path in self._images[indices]],
+            ioworkers=CPU_COUNT // 2,
+        )
 
-            return images[np.newaxis, :, :] if images.ndim == 2 else images
+        return images[np.newaxis, :, :] if images.ndim == 2 else images
 
 
 def _detect_format(path: PathTypes) -> type[Stack]:

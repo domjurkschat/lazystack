@@ -55,7 +55,6 @@ fully type-annotated to match the rest of lazystack.
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import numpy as np
@@ -284,14 +283,7 @@ class DCIMGFile:
 
     @property
     def _session_footer_offset(self) -> int:
-        header = self._session_header
-        if self._format_version == FMT_OLD:
-            session_data_size = header["session_data_size"].item()
-        else:  # FMT_NEW
-            session_data_size = (
-                header["offset_to_data"].item()
-                + (header["bytes_per_img"].item() + 8) * self.num_frames
-            )
+        session_data_size = self._session_header["session_data_size"].item()
         return self._header_size + session_data_size
 
     def open(self, file_path: str | Path | None = None) -> None:
@@ -328,7 +320,7 @@ class DCIMGFile:
                 self.bytes_per_row,
                 bytes_per_pixel,
             )
-        elif self._format_version == FMT_NEW:
+        else:  # FMT_NEW
             frame_footer_size = self._session_header[
                 "frame_footer_size"
             ].item()
@@ -367,7 +359,7 @@ class DCIMGFile:
             self._time_stamps = np.ndarray(
                 (self.num_frames, 2), np.uint32, self._memmap, offset
             )
-        elif self._format_version == FMT_NEW:
+        else:  # FMT_NEW
             # Framestamps.
             offset = (
                 self._file_header["header_size"].item()
@@ -525,92 +517,43 @@ class DCIMGFile:
         for _ in range(3 - len(indices)):
             indices.append(slice(0, self.shape[len(indices)], 1))
 
-        z_index = (
-            indices[0]
-            if isinstance(indices[0], (list, np.ndarray))
-            else indices[0].start
-        )
+        axes = [
+            np.arange(self.shape[axis])[index]
+            for axis, index in enumerate(indices)
+        ]
+        z_coords, y_coords, x_coords = axes
 
-        startx = indices[2].start
-        stopx = indices[2].stop
-        stepx = indices[2].step
+        if not self._has_4px_data:
+            return data
 
-        starty = indices[1].start
-        stopy = indices[1].stop
-        stepy = indices[1].step
+        target_rows = np.nonzero(y_coords == self._target_line)[0]
+        first_pixel_cols = np.nonzero(x_coords < 8 // self.byte_depth)[0]
 
-        target_line = self._target_line
-        condition_y = False
-        if self._format_version == FMT_OLD and self._has_4px_data:
-            condition_y = starty == 0 or stopy == 0
-        elif self._format_version == FMT_NEW and self._has_4px_data:
-            if stepy > 0:
-                condition_y = starty <= target_line <= stopy
-            elif stepy < 0:
-                condition_y = stopy <= target_line <= starty
+        if target_rows.size == 0 or first_pixel_cols.size == 0:
+            return data
 
-        num_first_pixels = 8 // self.byte_depth
+        if data.size == 1:
+            if not self.first_4px_correction_enabled:
+                return 0
+            if isinstance(indices[0], (list, np.ndarray)):
+                return self._first_4px[indices[0], x_coords[0]]
+            return self._first_4px[z_coords[0], x_coords[0]]
 
-        if condition_y and (
-            (0 <= startx < num_first_pixels) or stopx < num_first_pixels
-        ):
-            if data.size == 1:
-                if self.first_4px_correction_enabled:
-                    data = self._first_4px[z_index, startx]
-                else:
-                    data = 0
-                return data
+        old_shape = data.shape
+        data = np.reshape(data, [len(coords) for coords in axes])
 
-            if startx < stopx:
-                newstartx = 0
-                if stopx > num_first_pixels:
-                    newstopx = math.ceil(
-                        (num_first_pixels - startx) / abs(stepx)
-                    )
-                else:
-                    newstopx = (stopx - startx) // abs(stepx)
-            else:
-                newstopx = data.shape[-1]
-                if data.shape[-1] < num_first_pixels:
-                    newstartx = 0
-                else:
-                    newstartx = data.shape[-1] - num_first_pixels // abs(stepx)
+        if not data.flags.writeable:
+            data = np.copy(data)
 
-            if newstartx == newstopx:
-                return np.empty([0])
+        if self.first_4px_correction_enabled:
+            first_4px = self._first_4px[z_coords][
+                ..., x_coords[first_pixel_cols]
+            ]
+            data[:, target_rows[0], first_pixel_cols] = first_4px
+        else:
+            data[:, target_rows[0], first_pixel_cols] = 0
 
-            newshape = [self._len_index(index) for index in indices]
-
-            old_shape = data.shape
-
-            data = np.reshape(data, newshape)
-
-            newy = math.floor((target_line - starty) / stepy)
-            if stepy < 0:
-                newy -= 1
-
-            index_exp = np.index_exp[..., newy, newstartx:newstopx]
-
-            if not data.flags.writeable:
-                data = np.copy(data)
-
-            if self.first_4px_correction_enabled:
-                bounds = sorted((startx, stopx))
-                first_start = max(0, bounds[0])
-                first_stop = min(8 // self.byte_depth, bounds[1])
-                first_4px = self._first_4px[
-                    items[0], first_start : first_stop : abs(stepx)
-                ]
-
-                if stepx < 0:
-                    first_4px = first_4px[..., ::-1]
-                data[index_exp] = first_4px
-            else:
-                data[index_exp] = 0
-
-            data = np.reshape(data, old_shape)
-
-        return data
+        return np.reshape(data, old_shape)
 
     @property
     def framestamps(self) -> npt.NDArray[np.uint32]:
@@ -639,32 +582,4 @@ class DCIMGFile:
         if not isinstance(index, slice):
             raise TypeError(f"Invalid type: {type(index)}")
 
-        start, stop = index.start, index.stop
-        step = index.step if index.step is not None else 1
-
-        if start is None:
-            start = 0 if step > 0 else size
-        elif start < 0:
-            start += size
-            if stop is not None and stop < 0:
-                stop += size
-        elif start > size:
-            start = size
-
-        if stop is None:
-            stop = size if step > 0 else 0
-        elif stop < 0:
-            stop += size
-        elif stop > size:
-            stop = size
-
-        return slice(start, stop, step)
-
-    @staticmethod
-    def _len_index(index: slice | list | npt.NDArray[np.integer]) -> int:
-        if isinstance(index, (list, np.ndarray)):
-            index = np.asarray(index)
-            if index.dtype == np.bool_:
-                return int(np.count_nonzero(index))
-            return len(index)
-        return math.ceil((index.stop - index.start) / index.step)
+        return index
