@@ -69,35 +69,29 @@ with lazystack("path/to/supported_file.something") as stack:
 
 Note that nested spatial indexing of views is currently not supported.
 
-NumPy functions that accept array-likes — such as `np.take(stack, ...)`,
-`np.sum(stack)`, or arithmetic like `stack * 2` — convert the stack to a NumPy
-array first, reading all of its data into memory. This can be unexpected for
-large stacks, and is avoided by indexing or slicing the stack lazily instead
-(e.g., `stack[a:b, ...]` or `stack[[0, 50, 100]]`).
-
 It's best to open lazystacks within a context manager, but you can also open 
 and close them manually, e.g.:
 
 ```python
-images = lazystack("path/to/somehis.his")
+stack = lazystack("path/to/supported_file.something")
 # Do some stuff.
 # ...
 # Don't forget to close!
-images.close()
+stack.close()
 ```
 
 If you're opening HDF files, the desired dataset path (within the HDF file) 
 must also be specified, e.g.:
 
 ```python
-images = lazystack("path/to/some/hdf5.h5", "path/to/some/dset")
+stack = lazystack("path/to/some/hdf5.h5", "path/to/some/dset")
 ```
 
 Directories of files can be opened by supplying a list or array of filenames, e.g.:
 
 ```python
 filenames = sorted(input_path.glob("*.tif"))
-with lazystack(filenames) as images:
+with lazystack(filenames) as stack:
     # Do some stuff.
 ```
 
@@ -118,11 +112,11 @@ axis = 0
 # Step along the chunk axis (must be at least 1).
 step = 1
 
-with lazystack("path/to/somedcimg.dcimg") as images:
+with lazystack("path/to/somedcimg.dcimg") as stack:
     # `start_idx` and `stop_idx` specify the index bounds of each chunk, useful 
     #   for output.
     for chunk, start_idx, stop_idx in iter_chunks(
-        images, 
+        stack, 
         chunk_size_gb=chunk_size_gb,
         axis=axis,
         step=step,
@@ -133,8 +127,11 @@ with lazystack("path/to/somedcimg.dcimg") as images:
 
 Engine-level laziness and parallelism are intentionally
 left to consumers: use `iter_chunks()` to stream bounded-memory chunks through
-any function, or hand the stack to a chunked compute library such as dask for
-lazy arithmetic, reductions, or projections over a stack too large to load.
+any function, or hand the stack to a chunked/lazy compute library such as dask.
+
+Note that NumPy functions that accept array-likes such as `np.take(stack, ...)`,
+`np.sum(stack)`, or arithmetic like `stack * 2`, inherently materialise the stack,
+which may be unexpected and quickly fill up system memory for large stacks.
 
 ## Contributing
 
