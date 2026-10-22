@@ -1,4 +1,5 @@
 import sys
+from concurrent.futures import ThreadPoolExecutor
 
 import h5py
 import numpy as np
@@ -217,24 +218,28 @@ def test_materialisation(indexable):
     assert np.array_equal(np.array(object), expected)
 
 
+def _released(stack):
+    return stack._file is None and getattr(stack, "_memmap", None) is None
+
+
 def test_close_releases_handle(closable_stack):
     closable_stack.close()
 
-    assert closable_stack._file is None
+    assert _released(closable_stack)
 
 
 def test_close_is_idempotent(closable_stack):
     closable_stack.close()
     closable_stack.close()
 
-    assert closable_stack._file is None
+    assert _released(closable_stack)
 
 
 def test_exit_propagates_and_releases(closable_stack):
     with pytest.raises(RuntimeError), closable_stack:
         raise RuntimeError
 
-    assert closable_stack._file is None
+    assert _released(closable_stack)
 
 
 def test_2d_hdf(tmp_path, example_3d_data):
@@ -799,3 +804,24 @@ def test_hdf_reject_bad_ndim(tmp_path, example_3d_data):
 
     with pytest.raises(ValueError, match="Only stacks of 2D arrays"):
         lazystack(output_path, "images")
+
+
+@pytest.mark.parametrize("fmt", ["his", "paged", "volumetric"])
+def test_concurrent_reads(tmp_path, his_bytes, fmt):
+    # Frame i is filled with i, so a frame read at the wrong offset shows up.
+    data = np.repeat(np.arange(50, dtype=np.uint16), 64 * 64).reshape(
+        50, 64, 64
+    )
+    if fmt == "his":
+        path = tmp_path / "race.his"
+        path.write_bytes(his_bytes(data))
+    else:
+        path = tmp_path / "race.tif"
+        imwrite(path, data, volumetric=fmt == "volumetric")
+
+    indices = np.random.default_rng(0).integers(0, len(data), 5000)
+    with lazystack(path) as stack, ThreadPoolExecutor(8) as pool:
+        frames = list(pool.map(lambda i: stack[i], indices))
+
+    for i, frame in zip(indices, frames, strict=True):
+        assert np.array_equal(frame, data[i])

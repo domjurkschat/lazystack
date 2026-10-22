@@ -428,9 +428,9 @@ class HISStack(Stack):
     """
     Lazy reader for Hamamatsu HIS files.
 
-    Maintains an array of byte offsets for each image, allowing lazy reading
-    of single images and single seek/read of contiguous image chunks. HIS
-    files do not support lazy spatial slicing.
+    Maintains an array of byte offsets for each image into a read-only memory
+    map of the file, so concurrent reads are safe and need no lock. HIS files
+    do not support lazy spatial slicing.
 
     Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
     ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
@@ -478,6 +478,11 @@ class HISStack(Stack):
             )
             self.shape = (num_images_from_offsets, self._height, self._width)
             self.nbytes = self.image_nbytes * num_images_from_offsets
+
+        # Frames sit at variable offsets, so map raw bytes and slice per frame.
+        self._file.close()
+        self._file = None
+        self._memmap = np.memmap(path, mode="r")
 
     def _parse_metadata(self) -> dict[str, dict[str, str]]:
         self._file.seek(64, 0)
@@ -530,41 +535,20 @@ class HISStack(Stack):
         return np.asarray(image_offsets, dtype=np.int64)
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        self._file.seek(self._image_offsets[index], 0)
-        image_bytes = self._file.read(self.image_nbytes)
-        return np.frombuffer(image_bytes, dtype=self.dtype).reshape(
-            (self._height, self._width)
+        offset = self._image_offsets[index]
+        image_bytes = self._memmap[offset : offset + self.image_nbytes]
+        return np.array(
+            image_bytes.view(self.dtype).reshape(self._height, self._width)
         )
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        indices = np.asarray(indices)
+        return np.stack([self._get_image(index) for index in indices])
 
-        # Only contiguous, non-negative indices are guaranteed to map to
-        #   increasing file offsets.
-        if np.all(indices >= 0) and np.all(np.diff(indices) == 1):
-            offsets = self._image_offsets[indices]
-            start = offsets[0]
-            stop = offsets[-1]
-            self._file.seek(start, 0)
-            buffer = self._file.read(stop - start + self.image_nbytes)
-
-            out = np.empty(
-                (len(indices), self._height, self._width), dtype=self.dtype
-            )
-            for i, offset in enumerate(offsets):
-                image_bytes = buffer[
-                    offset - start : offset - start + self.image_nbytes
-                ]
-                out[i] = np.frombuffer(image_bytes, dtype=self.dtype).reshape(
-                    self._height, self._width
-                )
-
-        else:
-            out = np.stack([self._get_image(index) for index in indices])
-
-        return out
+    def close(self):
+        self._memmap = None
+        super().close()
 
 
 class DCIMGStack(Stack):
@@ -664,6 +648,8 @@ class TIFFStack(Stack):
         self._paths = np.atleast_1d(image_paths)
 
         self._file = TiffFile(self._paths[0])
+        # Serialise seek/read on the shared handle; decoding stays concurrent.
+        self._file.filehandle.set_lock(True)
 
         if not self._file.series:
             raise ValueError(f"No series found in {self._paths}.")
