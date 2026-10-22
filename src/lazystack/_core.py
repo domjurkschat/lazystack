@@ -648,8 +648,6 @@ class TIFFStack(Stack):
         self._paths = np.atleast_1d(image_paths)
 
         self._file = TiffFile(self._paths[0])
-        # Serialise seek/read on the shared handle; decoding stays concurrent.
-        self._file.filehandle.set_lock(True)
 
         if not self._file.series:
             raise ValueError(f"No series found in {self._paths}.")
@@ -686,6 +684,18 @@ class TIFFStack(Stack):
             self._images = np.array(
                 [page for page in series if page is not None]
             )
+
+            # Multi-file series close their secondary files after parsing, so
+            #   each read would reopen and close them unlocked. Keep every
+            #   file open (closed in `close`) and serialise its seek/read;
+            #   decoding stays concurrent.
+            self._filehandles = {
+                page.parent.filehandle for page in self._images
+            }
+            for filehandle in self._filehandles:
+                if filehandle.closed:
+                    filehandle.open()
+                filehandle.set_lock(True)
 
             if page.ndim == 3:
                 try:
@@ -806,6 +816,14 @@ class TIFFStack(Stack):
         )
 
         return images[np.newaxis, :, :] if images.ndim == 2 else images
+
+    def close(self):
+        # MMStack linked files aren't registered with the root `TiffFile`, so
+        #   its `close` would miss them.
+        for filehandle in getattr(self, "_filehandles", ()):
+            filehandle.close()
+        self._filehandles = ()
+        super().close()
 
 
 def _detect_format(path: PathTypes) -> type[Stack]:

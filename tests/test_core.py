@@ -825,3 +825,46 @@ def test_concurrent_reads(tmp_path, his_bytes, fmt):
 
     for i, frame in zip(indices, frames, strict=True):
         assert np.array_equal(frame, data[i])
+
+
+def _write_ome_multifile(directory, data):
+    # One OME series split across two files; tifffile closes `b` after parsing.
+    tiff_data = "".join(
+        f'<TiffData FirstT="{5 * i}" IFD="0" PlaneCount="5">'
+        f'<UUID FileName="{name}.ome.tif">urn:uuid:{name}</UUID></TiffData>'
+        for i, name in enumerate("ab")
+    )
+    xml = (
+        '<?xml version="1.0" encoding="UTF-8"?>'
+        '<OME xmlns="http://www.openmicroscopy.org/Schemas/OME/2016-06" '
+        'UUID="urn:uuid:{}"><Image ID="Image:0"><Pixels ID="Pixels:0" '
+        'DimensionOrder="XYZCT" Type="uint16" SizeX="64" SizeY="64" '
+        'SizeZ="1" SizeC="1" SizeT="10"><Channel ID="Channel:0:0" '
+        f'SamplesPerPixel="1"/>{tiff_data}</Pixels></Image></OME>'
+    )
+    for i, name in enumerate("ab"):
+        imwrite(
+            directory / f"{name}.ome.tif",
+            data[5 * i : 5 * (i + 1)],
+            description=xml.format(name),
+            metadata=None,
+        )
+    return directory / "a.ome.tif"
+
+
+@pytest.mark.filterwarnings("error")
+def test_tiff_multifile_concurrent_reads(tmp_path):
+    data = np.repeat(np.arange(10, dtype=np.uint16), 64 * 64).reshape(
+        10, 64, 64
+    )
+    stack = lazystack(_write_ome_multifile(tmp_path, data))
+    handles = {page.parent.filehandle for page in stack._images}
+    assert len(handles) == 2
+
+    indices = np.random.default_rng(0).integers(0, len(data), 2000)
+    with stack, ThreadPoolExecutor(8) as pool:
+        frames = list(pool.map(lambda i: stack[i], indices))
+
+    for i, frame in zip(indices, frames, strict=True):
+        assert np.array_equal(frame, data[i])
+    assert all(handle.closed for handle in handles)
