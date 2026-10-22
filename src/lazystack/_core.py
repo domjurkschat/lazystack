@@ -428,9 +428,10 @@ class HISStack(Stack):
     """
     Lazy reader for Hamamatsu HIS files.
 
-    Maintains an array of byte offsets for each image into a read-only memory
-    map of the file, so concurrent reads are safe and need no lock. HIS files
-    do not support lazy spatial slicing.
+    Maintains an array of byte offsets for each image. Each read opens its own
+    file handle, so concurrent reads are safe and need no lock, and the file
+    is not held open between reads. HIS files do not support lazy spatial
+    slicing.
 
     Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
     ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
@@ -479,10 +480,9 @@ class HISStack(Stack):
             self.shape = (num_images_from_offsets, self._height, self._width)
             self.nbytes = self.image_nbytes * num_images_from_offsets
 
-        # Frames sit at variable offsets, so map raw bytes and slice per frame.
+        self._path = path
         self._file.close()
         self._file = None
-        self._memmap = np.memmap(path, mode="r")
 
     def _parse_metadata(self) -> dict[str, dict[str, str]]:
         self._file.seek(64, 0)
@@ -535,20 +535,30 @@ class HISStack(Stack):
         return np.asarray(image_offsets, dtype=np.int64)
 
     def _get_image(self, index: int | np.integer) -> npt.NDArray:
-        offset = self._image_offsets[index]
-        image_bytes = self._memmap[offset : offset + self.image_nbytes]
-        return np.array(
-            image_bytes.view(self.dtype).reshape(self._height, self._width)
-        )
+        return self._get_images([index])[0]
 
     def _get_images(
         self, indices: list[int] | npt.NDArray[np.integer]
     ) -> npt.NDArray:
-        return np.stack([self._get_image(index) for index in indices])
+        out = np.empty(
+            (len(indices), self._height, self._width), dtype=self.dtype
+        )
 
-    def close(self):
-        self._memmap = None
-        super().close()
+        # A handle per call has its own file position, so threads can't move
+        #   each other's. One large `readinto` per frame reads straight into
+        #   the output, which is faster from cold than memory-mapping.
+        with self._path.open("rb") as file:
+            for image, offset in zip(
+                out, self._image_offsets[indices], strict=True
+            ):
+                file.seek(offset)
+                # Buffered `readinto` only returns short at end of file.
+                if file.readinto(image) != self.image_nbytes:
+                    raise ValueError(
+                        f"HIS image at byte {offset} is truncated."
+                    )
+
+        return out
 
 
 class DCIMGStack(Stack):

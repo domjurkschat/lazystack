@@ -11,9 +11,9 @@ from tifffile import TiffWriter, imwrite
 from lazystack import lazystack
 
 FORMATS = ["hdf", "his", "paged", "multi_file", "volumetric", "dcimg"]
-# `multi_file` is excluded: paths-mode TIFF opens per read and already has no
-#   persistent handle, so a close check would pass vacuously.
-CLOSABLE = ["hdf", "his", "dcimg", "paged", "volumetric"]
+# `his` and `multi_file` are excluded: they open a handle per read and keep no
+#   persistent one, so a close check would pass vacuously.
+CLOSABLE = ["hdf", "dcimg", "paged", "volumetric"]
 HIS_FRAME_COUNT = slice(14, 18)
 
 

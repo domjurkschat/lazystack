@@ -218,28 +218,24 @@ def test_materialisation(indexable):
     assert np.array_equal(np.array(object), expected)
 
 
-def _released(stack):
-    return stack._file is None and getattr(stack, "_memmap", None) is None
-
-
 def test_close_releases_handle(closable_stack):
     closable_stack.close()
 
-    assert _released(closable_stack)
+    assert closable_stack._file is None
 
 
 def test_close_is_idempotent(closable_stack):
     closable_stack.close()
     closable_stack.close()
 
-    assert _released(closable_stack)
+    assert closable_stack._file is None
 
 
 def test_exit_propagates_and_releases(closable_stack):
     with pytest.raises(RuntimeError), closable_stack:
         raise RuntimeError
 
-    assert _released(closable_stack)
+    assert closable_stack._file is None
 
 
 def test_2d_hdf(tmp_path, example_3d_data):
@@ -643,6 +639,14 @@ def test_his_reject_truncated(
     assert stack.nbytes == data.nbytes
 
     stack.close()
+
+
+def test_his_reject_truncated_image(tmp_path, example_3d_data, his_bytes):
+    path = tmp_path / "trunc_image.his"
+    path.write_bytes(his_bytes(example_3d_data.astype(np.uint16))[:-1])
+
+    with HISStack(path) as stack, pytest.raises(ValueError, match="truncated"):
+        stack[-1]
 
 
 def test_is_multichannel(fake_page):
