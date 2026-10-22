@@ -430,8 +430,7 @@ class HISStack(Stack):
 
     Maintains an array of byte offsets for each image. Each read opens its own
     file handle, so concurrent reads are safe and need no lock, and the file
-    is not held open between reads. HIS files do not support lazy spatial
-    slicing.
+    is not held open between reads.
 
     Inherits the shared ``Stack`` surface: ``shape``, ``dtype``,
     ``image_nbytes``, ``nbytes``, ``ndim``, ``size``, ``itemsize``, ``info``,
@@ -908,10 +907,9 @@ def lazystack(path: PathTypes, dset_name: str | None = None) -> Stack:
         Lazy image stack reader instance.
 
     Notes:
-        - The 'laziness' of arbitrary slicing depends on the layout of the
-          underlying data on disk. For example, HDF files support lazy spatial
-          slicing, but whole TIFF images must be materialised before spatial
-          slicing can be applied.
+        - Spatially sliced views are lazy for every format, but
+          materialising one reads the selected images in full and crops them
+          in memory.
         - Laziness covers lazystack's own indexing and slicing. NumPy
           functions that accept array-likes (e.g. ``np.take``, ``np.sum``)
           read the whole stack into memory.
